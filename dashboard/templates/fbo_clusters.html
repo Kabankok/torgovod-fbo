@@ -1,0 +1,305 @@
+{% extends "base.html" %}
+{% block title %}Кластеры FBO{% endblock %}
+
+{% block content %}
+<div x-data="clustersApp()" x-init="init()" class="flex flex-col h-full overflow-hidden">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between px-6 py-4 border-b border-surface-2 flex-shrink-0">
+    <div class="flex items-center gap-3">
+      <a href="/fbo" class="text-ink-muted hover:text-ink-primary transition-colors">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+        </svg>
+      </a>
+      <div>
+        <h1 class="text-lg font-semibold text-ink-primary">Настройки кластеров FBO</h1>
+        <p class="text-xs text-ink-muted mt-0.5">Управление отгрузкой по кластерам · наценки Ozon с 06.05.2026</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-3">
+      <!-- Stats pills -->
+      <div class="flex items-center gap-2 text-xs">
+        <span class="px-2.5 py-1 bg-green-500/10 text-green-400 rounded-full font-medium"
+              x-text="clusters.filter(c=>c.is_active).length + ' активных'"></span>
+        <span class="px-2.5 py-1 bg-surface-2 text-ink-muted rounded-full"
+              x-text="clusters.filter(c=>!c.is_active).length + ' отключено'"></span>
+      </div>
+      <div class="w-px h-5 bg-surface-2"></div>
+      <!-- Nacentka legend -->
+      <div class="flex items-center gap-2 text-xs text-ink-muted">
+        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-red-400"></span>+12%</span>
+        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-yellow-400"></span>+8%</span>
+        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-green-400"></span>0%</span>
+        <span class="text-ink-muted/60">— наценка Ozon</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Filter bar -->
+  <div class="flex items-center gap-3 px-6 py-3 border-b border-surface-2 bg-surface-1 flex-shrink-0">
+    <div class="flex items-center gap-1 bg-surface-2 rounded-lg p-1">
+      <button @click="showFilter='all'"
+              :class="showFilter==='all' ? 'bg-blue-600 text-white' : 'text-ink-muted hover:text-ink-secondary'"
+              class="px-3 py-1 text-xs font-medium rounded-md transition-colors">Все</button>
+      <button @click="showFilter='active'"
+              :class="showFilter==='active' ? 'bg-green-600 text-white' : 'text-ink-muted hover:text-ink-secondary'"
+              class="px-3 py-1 text-xs font-medium rounded-md transition-colors">Активные</button>
+      <button @click="showFilter='inactive'"
+              :class="showFilter==='inactive' ? 'bg-surface-3 text-ink-primary' : 'text-ink-muted hover:text-ink-secondary'"
+              class="px-3 py-1 text-xs font-medium rounded-md transition-colors">Отключённые</button>
+    </div>
+    <div class="flex items-center gap-1 bg-surface-2 rounded-lg p-1">
+      <button @click="sortKey='rank'"
+              :class="sortKey==='rank' ? 'bg-surface-3 text-ink-primary' : 'text-ink-muted hover:text-ink-secondary'"
+              class="px-3 py-1 text-xs font-medium rounded-md transition-colors">По продажам</button>
+      <button @click="sortKey='surcharge'"
+              :class="sortKey==='surcharge' ? 'bg-surface-3 text-ink-primary' : 'text-ink-muted hover:text-ink-secondary'"
+              class="px-3 py-1 text-xs font-medium rounded-md transition-colors">По наценке</button>
+      <button @click="sortKey='recommendation'"
+              :class="sortKey==='recommendation' ? 'bg-blue-600 text-white' : 'text-ink-muted hover:text-ink-secondary'"
+              class="px-3 py-1 text-xs font-medium rounded-md transition-colors">По рекомендации</button>
+    </div>
+    <span class="text-xs text-ink-muted ml-auto" x-text="filtered.length + ' кластеров'"></span>
+  </div>
+
+  <!-- Table -->
+  <div class="flex-1 overflow-auto">
+    <table class="w-full text-sm">
+      <thead class="sticky top-0 z-10 bg-surface-1 border-b border-surface-2">
+        <tr>
+          <th class="text-left px-4 py-3 text-xs font-medium text-ink-muted w-8 relative group cursor-help">
+            #
+            <div class="absolute left-0 top-full mt-1 w-52 p-2.5 bg-gray-900 border border-white/10 text-white text-xs rounded-lg shadow-xl pointer-events-none z-50 opacity-0 group-hover:opacity-100 transition-opacity duration-150 leading-relaxed font-normal normal-case whitespace-normal">
+              Ранг кластера по объёму продаж за 30 дней. Чем больше продаж — тем выше место.
+            </div>
+          </th>
+          <th class="text-left px-4 py-3 text-xs font-medium text-ink-muted relative group cursor-help">
+            Кластер
+            <div class="absolute left-0 top-full mt-1 w-64 p-2.5 bg-gray-900 border border-white/10 text-white text-xs rounded-lg shadow-xl pointer-events-none z-50 opacity-0 group-hover:opacity-100 transition-opacity duration-150 leading-relaxed font-normal normal-case whitespace-normal">
+              Регион доставки Ozon. Каждый кластер объединяет несколько складов одного географического района. Всего 26 кластеров: Россия + СНГ.
+            </div>
+          </th>
+          <th class="text-center px-3 py-3 text-xs font-medium text-ink-muted relative group cursor-help">
+            Наценка Ozon ⓘ
+            <div class="absolute left-0 top-full mt-1 w-72 p-2.5 bg-gray-900 border border-white/10 text-white text-xs rounded-lg shadow-xl pointer-events-none z-50 opacity-0 group-hover:opacity-100 transition-opacity duration-150 leading-relaxed font-normal normal-case whitespace-normal">
+              Дополнительная % к комиссии Ozon за нелокальную доставку (с 06.05.2026). Если товара нет на складе кластера и его везут из другого региона — эта надбавка снижает вашу маржу. +12% = Омск, Оренбург, Пермь, Самара. +8% = Москва, СПБ, Екатеринбург и др. 0% = Ростов, Новосибирск, СНГ.
+            </div>
+          </th>
+          <th class="text-right px-3 py-3 text-xs font-medium text-ink-muted relative group cursor-help">
+            Продажи 30д
+            <div class="absolute right-0 top-full mt-1 w-56 p-2.5 bg-gray-900 border border-white/10 text-white text-xs rounded-lg shadow-xl pointer-events-none z-50 opacity-0 group-hover:opacity-100 transition-opacity duration-150 leading-relaxed font-normal normal-case whitespace-normal">
+              Количество единиц, проданных через FBO в этот кластер за последние 30 дней. Берётся из реальных FBO-отгрузок (по полю cluster_to).
+            </div>
+          </th>
+          <th class="text-right px-3 py-3 text-xs font-medium text-ink-muted relative group cursor-help">
+            % от всего
+            <div class="absolute right-0 top-full mt-1 w-60 p-2.5 bg-gray-900 border border-white/10 text-white text-xs rounded-lg shadow-xl pointer-events-none z-50 opacity-0 group-hover:opacity-100 transition-opacity duration-150 leading-relaxed font-normal normal-case whitespace-normal">
+              Доля продаж этого кластера в общем объёме всех кластеров за 30 дней. Например, 38% = треть всех продаж идёт в Москву. Помогает понять приоритеты отгрузки.
+            </div>
+          </th>
+          <th class="text-right px-3 py-3 text-xs font-medium text-ink-muted relative group cursor-help">
+            Сток FBO
+            <div class="absolute right-0 top-full mt-1 w-56 p-2.5 bg-gray-900 border border-white/10 text-white text-xs rounded-lg shadow-xl pointer-events-none z-50 opacity-0 group-hover:opacity-100 transition-opacity duration-150 leading-relaxed font-normal normal-case whitespace-normal">
+              Суммарный остаток на складах Ozon в этом кластере прямо сейчас (по данным последней синхронизации).
+            </div>
+          </th>
+          <th class="text-right px-3 py-3 text-xs font-medium text-ink-muted relative group cursor-help">
+            Покрытие
+            <div class="absolute right-0 top-full mt-1 w-60 p-2.5 bg-gray-900 border border-white/10 text-white text-xs rounded-lg shadow-xl pointer-events-none z-50 opacity-0 group-hover:opacity-100 transition-opacity duration-150 leading-relaxed font-normal normal-case whitespace-normal">
+              На сколько дней хватит текущего стока при среднем темпе продаж. Считается как: сток ÷ (продажи 30д ÷ 30). Красный < 7 дн, жёлтый < 14 дн, синий > 90 дн.
+            </div>
+          </th>
+          <th class="text-right px-3 py-3 text-xs font-medium text-ink-muted relative group cursor-help">
+            К отгрузке
+            <div class="absolute right-0 top-full mt-1 w-60 p-2.5 bg-gray-900 border border-white/10 text-white text-xs rounded-lg shadow-xl pointer-events-none z-50 opacity-0 group-hover:opacity-100 transition-opacity duration-150 leading-relaxed font-normal normal-case whitespace-normal">
+              Рекомендованное количество единиц для отгрузки в этот кластер. Формула: продажи_28д × буфер_ABC − сток − в_пути. Учитывает ABC-категорию товара.
+            </div>
+          </th>
+          <th class="text-center px-3 py-3 text-xs font-medium text-ink-muted relative group cursor-help">
+            Время поставки
+            <div class="absolute right-0 top-full mt-1 w-64 p-2.5 bg-gray-900 border border-white/10 text-white text-xs rounded-lg shadow-xl pointer-events-none z-50 opacity-0 group-hover:opacity-100 transition-opacity duration-150 leading-relaxed font-normal normal-case whitespace-normal">
+              Сколько дней от начала упаковки до появления товара на складе Ozon: упаковка (1–3д) + запись в таймслот + доставка + приёмка. Стандарт: 8 дней. Используется в расчёте рекомендаций.
+            </div>
+          </th>
+          <th class="text-left px-3 py-3 text-xs font-medium text-ink-muted relative group cursor-help">
+            Резервный кластер
+            <div class="absolute right-0 top-full mt-1 w-64 p-2.5 bg-gray-900 border border-white/10 text-white text-xs rounded-lg shadow-xl pointer-events-none z-50 opacity-0 group-hover:opacity-100 transition-opacity duration-150 leading-relaxed font-normal normal-case whitespace-normal">
+              Куда перераспределяется спрос, если этот кластер отключён. «Авто» = следующий активный кластер по рангу продаж. Можно указать вручную, например Беларусь → Москва.
+            </div>
+          </th>
+          <th class="text-center px-3 py-3 text-xs font-medium text-ink-muted relative group cursor-help">
+            Грузим
+            <div class="absolute right-0 top-full mt-1 w-56 p-2.5 bg-gray-900 border border-white/10 text-white text-xs rounded-lg shadow-xl pointer-events-none z-50 opacity-0 group-hover:opacity-100 transition-opacity duration-150 leading-relaxed font-normal normal-case whitespace-normal">
+              Включить / выключить отгрузку в этот кластер. При выключении кластер не участвует в расчётах рекомендаций, его спрос идёт в резервный кластер.
+            </div>
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        <template x-if="loading">
+          <tr><td colspan="11" class="text-center py-16 text-ink-muted">
+            <svg class="w-6 h-6 animate-spin mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+            </svg>
+            Загрузка...
+          </td></tr>
+        </template>
+        <template x-for="c in filtered" :key="c.cluster_name">
+          <tr :class="c.is_active ? 'border-b border-surface-2/50 hover:bg-surface-2/30' : 'border-b border-surface-2/30 opacity-50 hover:opacity-75'"
+              class="transition-all">
+            <td class="px-4 py-3 text-xs text-ink-muted" x-text="c.rank"></td>
+            <td class="px-4 py-3">
+              <div class="font-medium text-ink-primary" x-text="c.cluster_name"></div>
+              <div class="text-xs text-ink-muted mt-0.5"
+                   x-show="!c.is_active && c.fallback_cluster"
+                   x-text="'Резерв: ' + c.fallback_cluster"></div>
+              <div class="text-xs text-yellow-500/70 mt-0.5"
+                   x-show="!c.is_active && !c.fallback_cluster">Резерв: авто</div>
+            </td>
+            <td class="px-3 py-3 text-center">
+              <span :class="surchargeClass(c.surcharge_pct)"
+                    class="px-2 py-0.5 rounded-full text-xs font-medium"
+                    x-text="'+' + c.surcharge_pct + '%'"></span>
+            </td>
+            <td class="px-3 py-3 text-right font-mono text-sm" x-text="c.qty_30d"></td>
+            <td class="px-3 py-3 text-right">
+              <span class="text-sm font-medium"
+                    :class="c.pct_qty > 20 ? 'text-blue-400' : c.pct_qty > 10 ? 'text-ink-primary' : 'text-ink-muted'"
+                    x-text="c.pct_qty.toFixed(1) + '%'"></span>
+            </td>
+            <td class="px-3 py-3 text-right font-mono text-sm" x-text="c.fact_stock"></td>
+            <td class="px-3 py-3 text-right">
+              <span class="text-sm font-mono"
+                    :class="c.days_coverage != null ? (c.days_coverage < 7 ? 'text-red-400 font-bold' : c.days_coverage < 14 ? 'text-yellow-400' : c.days_coverage > 90 ? 'text-blue-400' : 'text-ink-primary') : 'text-ink-muted'"
+                    x-text="c.days_coverage != null ? c.days_coverage.toFixed(1) + ' дн' : '∞'"></span>
+            </td>
+            <td class="px-3 py-3 text-right">
+              <span x-show="c.recommendation > 0" class="font-bold text-blue-400 font-mono text-sm"
+                    x-text="c.recommendation"></span>
+              <span x-show="!c.recommendation" class="text-ink-muted text-sm">—</span>
+            </td>
+            <!-- Lead time editable -->
+            <td class="px-3 py-3 text-center">
+              <div class="flex items-center gap-1 justify-center">
+                <input type="number" min="1" max="30"
+                       :value="c.lead_time_days"
+                       @change="saveSetting(c, 'lead_time_days', parseInt($event.target.value))"
+                       class="w-12 text-center text-xs bg-surface-2 border border-surface-2 rounded px-1 py-0.5 text-ink-primary focus:outline-none focus:border-blue-500">
+                <span class="text-xs text-ink-muted">дн</span>
+              </div>
+            </td>
+            <!-- Fallback cluster dropdown -->
+            <td class="px-3 py-3">
+              <select :value="c.fallback_cluster || ''"
+                      @change="saveFallback(c, $event.target.value)"
+                      class="w-full text-xs bg-surface-2 border border-surface-2 rounded px-2 py-1 text-ink-secondary focus:outline-none focus:border-blue-500">
+                <option value="">авто</option>
+                <template x-for="opt in clusters.filter(x => x.cluster_name !== c.cluster_name && x.is_active)" :key="opt.cluster_name">
+                  <option :value="opt.cluster_name" :selected="opt.cluster_name === c.fallback_cluster"
+                          x-text="opt.cluster_name"></option>
+                </template>
+              </select>
+            </td>
+            <!-- Active toggle -->
+            <td class="px-3 py-3 text-center">
+              <button @click="toggleActive(c)"
+                      :class="c.is_active ? 'bg-green-600 hover:bg-green-500' : 'bg-surface-2 hover:bg-surface-3'"
+                      class="relative inline-flex h-5 w-9 items-center rounded-full transition-colors">
+                <span :class="c.is_active ? 'translate-x-4' : 'translate-x-1'"
+                      class="inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform"></span>
+              </button>
+            </td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Bottom hint -->
+  <div class="px-6 py-3 border-t border-surface-2 bg-surface-1 flex-shrink-0">
+    <p class="text-xs text-ink-muted">
+      <span class="text-yellow-400 font-medium">Время поставки</span> = упаковка + доставка до склада Ozon + приёмка (стандарт 8 дней).
+      При отключении кластера его спрос идёт в резервный кластер.
+      Наценка Ozon за нелокальность действует с 06.05.2026.
+    </p>
+  </div>
+
+</div>
+
+<script>
+function clustersApp() {
+  return {
+    clusters: [],
+    filtered: [],
+    loading: true,
+    showFilter: 'all',
+    sortKey: 'rank',
+
+    async init() {
+      await this.loadData();
+      this.$watch('showFilter', () => this.applyFilter());
+      this.$watch('sortKey', () => this.applyFilter());
+    },
+
+    async loadData() {
+      this.loading = true;
+      try {
+        const data = await fetch('/api/fbo/clusters').then(r => r.json());
+        this.clusters = data.clusters || [];
+        this.applyFilter();
+      } catch(e) {
+        console.error('Cluster load error', e);
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    applyFilter() {
+      let result = [...this.clusters];
+      if (this.showFilter === 'active')   result = result.filter(c => c.is_active);
+      if (this.showFilter === 'inactive') result = result.filter(c => !c.is_active);
+      if (this.sortKey === 'surcharge')
+        result.sort((a, b) => b.surcharge_pct - a.surcharge_pct || b.qty_30d - a.qty_30d);
+      else if (this.sortKey === 'recommendation')
+        result.sort((a, b) => b.recommendation - a.recommendation);
+      else
+        result.sort((a, b) => a.rank - b.rank);
+      this.filtered = result;
+    },
+
+    async toggleActive(c) {
+      const newVal = c.is_active ? 0 : 1;
+      c.is_active = newVal;
+      this.applyFilter();
+      await this.post(c.cluster_name, { is_active: newVal });
+    },
+
+    async saveSetting(c, key, val) {
+      c[key] = val;
+      await this.post(c.cluster_name, { [key]: val });
+    },
+
+    async saveFallback(c, val) {
+      c.fallback_cluster = val || null;
+      const body = val ? { fallback_cluster: val } : { clear_fallback: true };
+      await this.post(c.cluster_name, body);
+    },
+
+    async post(clusterName, body) {
+      await fetch(`/api/fbo/clusters/${encodeURIComponent(clusterName)}/settings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    },
+
+    surchargeClass(pct) {
+      if (pct >= 12) return 'bg-red-500/15 text-red-400';
+      if (pct >= 8)  return 'bg-yellow-500/15 text-yellow-400';
+      return 'bg-green-500/15 text-green-400';
+    },
+  };
+}
+</script>
+{% endblock %}

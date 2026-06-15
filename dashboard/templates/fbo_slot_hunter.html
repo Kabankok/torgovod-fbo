@@ -1,0 +1,563 @@
+{% extends "base.html" %}
+{% block title %}Слот-хантер FBO{% endblock %}
+
+{% block content %}
+<div x-data="slotHunterApp()" x-init="init()" class="flex flex-col h-full overflow-hidden">
+
+  <!-- ── Header ─────────────────────────────────────────────────────────── -->
+  <div class="flex items-center justify-between px-6 py-4 border-b border-surface-2 flex-shrink-0">
+    <div class="flex items-center gap-3">
+      <a href="/fbo" class="text-ink-muted hover:text-ink-primary transition-colors">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+        </svg>
+      </a>
+      <div>
+        <h1 class="text-lg font-semibold text-ink-primary">Слот-хантер FBO</h1>
+        <p class="text-xs text-ink-muted mt-0.5">Автоматический поиск и захват таймслота для заявки на поставку</p>
+      </div>
+    </div>
+    <!-- Live status pills -->
+    <div class="flex items-center gap-2 text-xs">
+      <div x-show="activeCount > 0"
+           class="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/10 text-green-400 rounded-full font-medium">
+        <span class="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse"></span>
+        Активных: <span x-text="activeCount" class="font-bold ml-1"></span>
+      </div>
+      <div x-show="activeCount === 0"
+           class="flex items-center gap-1.5 px-3 py-1.5 bg-surface-2 text-ink-muted rounded-full">
+        Нет активных
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Body ───────────────────────────────────────────────────────────── -->
+  <div class="flex flex-1 overflow-hidden gap-0">
+
+    <!-- ── Left: Create form + Jobs list ─────────────────────────────── -->
+    <div class="flex flex-col w-[440px] flex-shrink-0 border-r border-surface-2 overflow-y-auto">
+
+      <!-- Create form -->
+      <div class="px-5 py-4 border-b border-surface-2">
+        <div class="text-xs font-semibold text-ink-muted uppercase tracking-wider mb-3">Новый мониторинг</div>
+
+        <div class="space-y-3">
+
+          <!-- Supply order input -->
+          <div>
+            <label class="text-xs text-ink-muted block mb-1">Номер или ID заявки</label>
+            <div class="flex gap-2">
+              <input x-model="form.order_input" @keydown.enter="lookupOrder()"
+                     type="text" placeholder="ID или номер заявки..."
+                     class="flex-1 px-3 py-2 text-sm bg-surface-2 border border-surface-2 rounded-lg text-ink-primary placeholder-ink-muted focus:outline-none focus:border-blue-500"/>
+              <button @click="lookupOrder()" :disabled="lookingUp"
+                      class="px-3 py-2 bg-surface-2 hover:bg-surface-3 text-ink-secondary text-sm rounded-lg transition-colors disabled:opacity-50">
+                <svg class="w-4 h-4" :class="lookingUp ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                </svg>
+              </button>
+            </div>
+            <!-- Resolved order info -->
+            <div x-show="form.resolved_order" class="mt-1.5 px-2 py-1.5 bg-blue-500/10 border border-blue-500/20 rounded-lg text-xs">
+              <span class="text-blue-400 font-medium" x-text="form.resolved_order?.order_number || form.resolved_order?.supply_order_number || form.resolved_order?.supply_order_id"></span>
+              <span x-show="form.resolved_order?.state" class="text-ink-muted ml-2" x-text="'· ' + (form.resolved_order?.state || '')"></span>
+            </div>
+            <div x-show="lookupError" class="mt-1 text-xs text-red-400" x-text="lookupError"></div>
+          </div>
+
+          <!-- Or pick from list -->
+          <div>
+            <label class="text-xs text-ink-muted block mb-1">или выбрать из заявок
+              <span x-show="supplyOrders.length" class="text-ink-faint" x-text="'(' + supplyOrders.length + ')'"></span>
+            </label>
+            <select x-model="form.order_input" @change="selectFromList()"
+                    class="w-full px-3 py-2 text-sm bg-surface-2 border border-surface-2 rounded-lg text-ink-primary focus:outline-none focus:border-blue-500">
+              <option value="">— Выбрать заявку —</option>
+              <template x-for="o in supplyOrders" :key="o.supply_order_id">
+                <option :value="o.supply_order_id"
+                        x-text="(o.order_number || o.supply_order_id) + (o.cluster ? ' · ' + o.cluster : '') + ' · ' + stateRu(o.state) + (o.timeslot_from ? ' · ' + fmtSlotShort(o.timeslot_from) : '')"></option>
+              </template>
+            </select>
+          </div>
+
+          <!-- Desired date range -->
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="text-xs text-ink-muted block mb-1">Желаемая дата (от)</label>
+              <input x-model="form.date_from" type="date"
+                     :min="todayStr()"
+                     class="w-full px-3 py-2 text-sm bg-surface-2 border border-surface-2 rounded-lg text-ink-primary focus:outline-none focus:border-blue-500"/>
+            </div>
+            <div>
+              <label class="text-xs text-ink-muted block mb-1">Желаемая дата (до)</label>
+              <input x-model="form.date_to" type="date"
+                     :min="form.date_from || todayStr()"
+                     class="w-full px-3 py-2 text-sm bg-surface-2 border border-surface-2 rounded-lg text-ink-primary focus:outline-none focus:border-blue-500"/>
+            </div>
+          </div>
+
+          <!-- Desired time window -->
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="text-xs text-ink-muted block mb-1">Время от</label>
+              <input x-model="form.time_from" type="time"
+                     class="w-full px-3 py-2 text-sm bg-surface-2 border border-surface-2 rounded-lg text-ink-primary focus:outline-none focus:border-blue-500"/>
+            </div>
+            <div>
+              <label class="text-xs text-ink-muted block mb-1">Время до</label>
+              <input x-model="form.time_to" type="time"
+                     class="w-full px-3 py-2 text-sm bg-surface-2 border border-surface-2 rounded-lg text-ink-primary focus:outline-none focus:border-blue-500"/>
+            </div>
+          </div>
+
+          <!-- Polling interval -->
+          <div>
+            <label class="text-xs text-ink-muted block mb-1">Интервал проверки</label>
+            <div class="flex items-center gap-1 bg-surface-2 rounded-lg p-1">
+              <template x-for="opt in [{v:30,l:'30 сек'},{v:60,l:'1 мин'},{v:120,l:'2 мин'},{v:300,l:'5 мин'}]" :key="opt.v">
+                <button @click="form.interval_sec = opt.v"
+                        :class="form.interval_sec === opt.v ? 'bg-blue-600 text-white' : 'text-ink-muted hover:text-ink-secondary'"
+                        class="flex-1 py-1.5 text-xs font-medium rounded-md transition-colors"
+                        x-text="opt.l"></button>
+              </template>
+            </div>
+            <p class="text-xs text-ink-muted/60 mt-1">Рекомендуется 60 сек. Минимум 30 сек (лимит API Ozon).</p>
+          </div>
+
+          <!-- Submit -->
+          <button @click="createJob()"
+                  :disabled="!canCreate || creating"
+                  class="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors">
+            <svg class="w-4 h-4" :class="creating ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+            </svg>
+            <span x-text="creating ? 'Запуск...' : 'Запустить поиск'"></span>
+          </button>
+
+          <div x-show="createError" class="text-xs text-red-400 text-center" x-text="createError"></div>
+        </div>
+      </div>
+
+      <!-- Jobs list -->
+      <div class="flex-1 overflow-y-auto">
+        <div x-show="jobs.length === 0" class="text-center py-10 text-ink-muted text-sm">
+          Нет активных заданий
+        </div>
+        <template x-for="job in jobs" :key="job.id">
+          <div @click="selectJob(job)"
+               :class="selectedJob?.id === job.id ? 'bg-blue-500/10 border-l-2 border-blue-500' : 'border-l-2 border-transparent hover:bg-surface-2/50'"
+               class="px-5 py-3.5 border-b border-surface-2/50 cursor-pointer transition-colors">
+
+            <div class="flex items-start justify-between gap-2 mb-1">
+              <div class="flex-1 min-w-0">
+                <span class="text-sm font-medium text-ink-primary truncate block"
+                      x-text="job.supply_order_num || ('Заявка #' + job.supply_order_id)"></span>
+              </div>
+              <!-- Status badge -->
+              <span :class="statusClass(job.status)"
+                    class="px-2 py-0.5 rounded-full text-xs font-medium flex-shrink-0"
+                    x-text="statusLabel(job.status)"></span>
+            </div>
+
+            <div class="text-xs text-ink-muted space-y-0.5">
+              <div>Ищем: <span class="text-ink-secondary" x-text="fmtDateRange(job) + ' · ' + job.target_time_from + '–' + job.target_time_to"></span></div>
+              <div class="flex items-center justify-between">
+                <span>Интервал: <span x-text="job.interval_sec + ' сек'"></span> · Проверок: <span x-text="job.checks_count || 0"></span></span>
+                <span x-show="job.status === 'done' && job.found_slot_from"
+                      class="text-green-400 font-medium" x-text="fmtFoundSlot(job)"></span>
+              </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="flex items-center gap-2 mt-2" @click.stop>
+              <template x-if="job.status === 'active'">
+                <button @click="pauseJob(job.id)"
+                        class="px-2 py-1 text-xs bg-surface-2 hover:bg-surface-3 text-ink-secondary rounded transition-colors">
+                  Пауза
+                </button>
+              </template>
+              <template x-if="job.status === 'paused'">
+                <button @click="resumeJob(job.id)"
+                        class="px-2 py-1 text-xs bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded transition-colors">
+                  Возобновить
+                </button>
+              </template>
+              <button @click="deleteJob(job.id)"
+                      class="px-2 py-1 text-xs bg-surface-2 hover:bg-red-500/20 text-ink-muted hover:text-red-400 rounded transition-colors ml-auto">
+                Удалить
+              </button>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- ── Right: Events log ──────────────────────────────────────────── -->
+    <div class="flex-1 flex flex-col overflow-hidden bg-surface-1">
+      <template x-if="!selectedJob">
+        <div class="flex-1 flex items-center justify-center text-ink-muted">
+          <div class="text-center">
+            <svg class="w-12 h-12 mx-auto mb-3 opacity-20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                    d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+            </svg>
+            <p class="text-sm">Выберите задание слева, чтобы посмотреть лог событий</p>
+          </div>
+        </div>
+      </template>
+
+      <template x-if="selectedJob">
+        <div class="flex flex-col h-full">
+          <!-- Panel header -->
+          <div class="px-6 py-4 border-b border-surface-2 flex-shrink-0">
+            <div class="flex items-center justify-between">
+              <div>
+                <div class="font-semibold text-ink-primary"
+                     x-text="selectedJob.supply_order_num || ('Заявка #' + selectedJob.supply_order_id)"></div>
+                <div class="text-xs text-ink-muted mt-0.5">
+                  Ищем слот: <span x-text="fmtDateRange(selectedJob)"></span>
+                  с <span x-text="selectedJob.target_time_from"></span>
+                  до <span x-text="selectedJob.target_time_to"></span>
+                </div>
+              </div>
+              <div class="flex items-center gap-3 text-xs text-ink-muted">
+                <span>Проверок: <span class="font-bold text-ink-primary" x-text="selectedJob.checks_count || 0"></span></span>
+                <span>Интервал: <span x-text="selectedJob.interval_sec + ' сек'"></span></span>
+                <button @click="loadEvents()" class="p-1 hover:text-ink-primary transition-colors" title="Обновить лог">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <!-- Success banner -->
+            <div x-show="selectedJob.status === 'done' && selectedJob.found_slot_from"
+                 class="mt-3 flex items-center gap-2 px-3 py-2 bg-green-500/10 border border-green-500/20 rounded-lg text-xs text-green-400">
+              <svg class="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+              </svg>
+              <span>Слот забронирован: <strong x-text="fmtFoundSlot(selectedJob)"></strong></span>
+            </div>
+          </div>
+
+          <!-- Events -->
+          <div class="flex-1 overflow-y-auto px-6 py-3 space-y-1.5">
+            <div x-show="events.length === 0" class="text-center py-8 text-sm text-ink-muted">
+              Нет событий
+            </div>
+            <template x-for="ev in events" :key="ev.id">
+              <div class="flex items-start gap-3 py-2 border-b border-surface-2/30">
+                <!-- Icon -->
+                <div :class="eventIconBg(ev.event_type)"
+                     class="w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center mt-0.5">
+                  <template x-if="ev.event_type === 'booked'">
+                    <svg class="w-3.5 h-3.5 text-white" fill="currentColor" viewBox="0 0 20 20">
+                      <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                    </svg>
+                  </template>
+                  <template x-if="ev.event_type === 'error'">
+                    <svg class="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                  </template>
+                  <template x-if="ev.event_type === 'found'">
+                    <svg class="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                    </svg>
+                  </template>
+                  <template x-if="ev.event_type === 'check'">
+                    <svg class="w-3.5 h-3.5 text-white/70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                  </template>
+                </div>
+
+                <!-- Content -->
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center justify-between">
+                    <span :class="eventTextClass(ev.event_type)" class="text-xs font-medium"
+                          x-text="eventTypeLabel(ev.event_type)"></span>
+                    <span class="text-xs text-ink-muted/60 flex-shrink-0 ml-2" x-text="fmtTime(ev.created_at)"></span>
+                  </div>
+                  <div class="text-xs text-ink-muted mt-0.5" x-text="ev.message"></div>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+</div>
+
+<script>
+function slotHunterApp() {
+  return {
+    jobs: [],
+    events: [],
+    selectedJob: null,
+    supplyOrders: [],
+    form: {
+      order_input: '',
+      resolved_order: null,
+      date_from: '',
+      date_to: '',
+      time_from: '09:00',
+      time_to: '18:00',
+      interval_sec: 60,
+    },
+    lookingUp: false,
+    lookupError: '',
+    creating: false,
+    createError: '',
+    _pollTimer: null,
+
+    async init() {
+      // Set default dates: tomorrow
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const d = tomorrow.toISOString().slice(0, 10);
+      this.form.date_from = d;
+      this.form.date_to = d;
+
+      await Promise.all([this.loadJobs(), this.loadSupplyOrders()]);
+      this._startPolling();
+    },
+
+    _startPolling() {
+      // Refresh jobs list every 15 sec while page is open
+      this._pollTimer = setInterval(async () => {
+        await this.loadJobs();
+        if (this.selectedJob) {
+          const updated = this.jobs.find(j => j.id === this.selectedJob.id);
+          if (updated) this.selectedJob = updated;
+          await this.loadEvents();
+        }
+      }, 15000);
+    },
+
+    async loadJobs() {
+      try {
+        const r = await fetch('/api/fbo/slot-hunter/jobs').then(r => r.json());
+        this.jobs = r.jobs || [];
+      } catch(e) { console.error('loadJobs', e); }
+    },
+
+    async loadSupplyOrders() {
+      try {
+        const r = await fetch('/api/fbo/slot-hunter/supply-orders').then(r => r.json());
+        this.supplyOrders = r.orders || [];
+      } catch(e) { console.error('loadSupplyOrders', e); }
+    },
+
+    async lookupOrder() {
+      if (!this.form.order_input.trim()) return;
+      this.lookingUp = true;
+      this.lookupError = '';
+      this.form.resolved_order = null;
+      try {
+        const r = await fetch(`/api/fbo/slot-hunter/supply-orders?q=${encodeURIComponent(this.form.order_input)}`).then(r => r.json());
+        const orders = r.orders || [];
+        if (orders.length > 0) {
+          this.form.resolved_order = orders[0];
+          this.form.order_input = String(orders[0].supply_order_id);
+        } else {
+          this.lookupError = 'Заявка не найдена. Введите ID напрямую.';
+        }
+      } catch(e) {
+        this.lookupError = 'Ошибка поиска. Введите ID заявки вручную.';
+      } finally {
+        this.lookingUp = false;
+      }
+    },
+
+    selectFromList() {
+      const order = this.supplyOrders.find(o => String(o.supply_order_id) === String(this.form.order_input));
+      this.form.resolved_order = order || null;
+    },
+
+    get canCreate() {
+      return this.form.order_input &&
+             this.form.date_from &&
+             this.form.date_to &&
+             this.form.time_from &&
+             this.form.time_to;
+    },
+
+    get activeCount() {
+      return this.jobs.filter(j => j.status === 'active').length;
+    },
+
+    async createJob() {
+      if (!this.canCreate || this.creating) return;
+      this.creating = true;
+      this.createError = '';
+      try {
+        const body = {
+          supply_order_id: parseInt(this.form.order_input) || this.form.order_input,
+          supply_order_num: this.form.resolved_order?.order_number || this.form.resolved_order?.supply_order_number || String(this.form.order_input),
+          target_date_from: this.form.date_from,
+          target_date_to: this.form.date_to,
+          target_time_from: this.form.time_from,
+          target_time_to: this.form.time_to,
+          interval_sec: this.form.interval_sec,
+        };
+        const r = await fetch('/api/fbo/slot-hunter/jobs', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(body),
+        }).then(r => r.json());
+        if (r.error) { this.createError = r.error; return; }
+        this.form.order_input = '';
+        this.form.resolved_order = null;
+        await this.loadJobs();
+        const newJob = this.jobs.find(j => j.id === r.id);
+        if (newJob) this.selectJob(newJob);
+      } catch(e) {
+        this.createError = 'Ошибка создания задания';
+      } finally {
+        this.creating = false;
+      }
+    },
+
+    async selectJob(job) {
+      this.selectedJob = job;
+      await this.loadEvents();
+    },
+
+    async loadEvents() {
+      if (!this.selectedJob) return;
+      try {
+        const r = await fetch(`/api/fbo/slot-hunter/jobs/${this.selectedJob.id}/events`).then(r => r.json());
+        this.events = r.events || [];
+      } catch(e) { console.error('loadEvents', e); }
+    },
+
+    async pauseJob(id) {
+      await fetch(`/api/fbo/slot-hunter/jobs/${id}/pause`, { method: 'POST' });
+      await this.loadJobs();
+      if (this.selectedJob?.id === id) this.selectedJob = this.jobs.find(j => j.id === id) || this.selectedJob;
+    },
+
+    async resumeJob(id) {
+      await fetch(`/api/fbo/slot-hunter/jobs/${id}/resume`, { method: 'POST' });
+      await this.loadJobs();
+      if (this.selectedJob?.id === id) this.selectedJob = this.jobs.find(j => j.id === id) || this.selectedJob;
+    },
+
+    async deleteJob(id) {
+      if (!confirm('Удалить задание и весь лог событий?')) return;
+      await fetch(`/api/fbo/slot-hunter/jobs/${id}`, { method: 'DELETE' });
+      if (this.selectedJob?.id === id) { this.selectedJob = null; this.events = []; }
+      await this.loadJobs();
+    },
+
+    todayStr() {
+      return new Date().toISOString().slice(0, 10);
+    },
+
+    fmtSlotShort(isoStr) { return fmtSlotShort(isoStr); },
+    stateRu(s) { return stateRu(s); },
+
+    fmtDateRange(job) {
+      if (job.target_date_from === job.target_date_to) return fmtDate(job.target_date_from);
+      return fmtDate(job.target_date_from) + ' – ' + fmtDate(job.target_date_to);
+    },
+
+    fmtFoundSlot(job) {
+      if (!job.found_slot_from) return '';
+      return fmtSlotDisplay(job.found_slot_from, job.found_slot_to);
+    },
+
+    fmtTime(ts) {
+      if (!ts) return '';
+      try {
+        const d = new Date(ts + 'Z');
+        return d.toLocaleString('ru-RU', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
+      } catch { return ts.slice(0, 16); }
+    },
+
+    statusClass(s) {
+      return {
+        'active':  'bg-green-500/15 text-green-400',
+        'paused':  'bg-yellow-500/15 text-yellow-400',
+        'done':    'bg-blue-500/15 text-blue-400',
+        'error':   'bg-red-500/15 text-red-400',
+      }[s] || 'bg-surface-2 text-ink-muted';
+    },
+
+    statusLabel(s) {
+      return {'active':'Активен','paused':'Пауза','done':'Завершён','error':'Ошибка'}[s] || s;
+    },
+
+    eventIconBg(t) {
+      return {
+        'booked': 'bg-green-500',
+        'found':  'bg-blue-500',
+        'error':  'bg-red-500',
+        'check':  'bg-surface-3',
+      }[t] || 'bg-surface-3';
+    },
+
+    eventTextClass(t) {
+      return {
+        'booked': 'text-green-400',
+        'found':  'text-blue-400',
+        'error':  'text-red-400',
+        'check':  'text-ink-muted',
+      }[t] || 'text-ink-muted';
+    },
+
+    eventTypeLabel(t) {
+      return {
+        'booked':  '✓ Слот забронирован',
+        'found':   '◎ Слот найден',
+        'check':   '○ Проверка',
+        'error':   '✗ Ошибка',
+        'stopped': '▪ Остановлен',
+      }[t] || t;
+    },
+  };
+}
+
+function fmtDate(s) {
+  if (!s) return '';
+  const [y, m, d] = s.split('-');
+  return `${d}.${m}.${y}`;
+}
+
+function fmtSlotShort(isoStr) {
+  if (!isoStr) return '';
+  try {
+    const d = new Date(isoStr);
+    return d.toLocaleDateString('ru-RU', {day:'2-digit', month:'2-digit'}) + ' ' +
+           d.toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'});
+  } catch { return isoStr.slice(0, 16); }
+}
+
+const _STATE_RU = {
+  'DATA_FILLING':    'Заполнение данных',
+  'DATA_FILLED':     'Данные заполнены',
+  'CONFIRMED':       'Подтверждено',
+  'APPROVED':        'Одобрено',
+  'READY_TO_SUPPLY': 'Готов к отгрузке',
+  'SUPPLYING':       'Отгружается',
+  'SUPPLIED':        'Отгружено',
+  'CANCELLED':       'Отменено',
+  'DRAFT':           'Черновик',
+};
+function stateRu(s) { return _STATE_RU[s] || s || ''; }
+
+function fmtSlotDisplay(from, to) {
+  try {
+    const df = new Date(from.replace(' ', 'T'));
+    const dt = new Date(to.replace(' ', 'T'));
+    const dateStr = df.toLocaleDateString('ru-RU', {day:'2-digit', month:'2-digit', year:'numeric'});
+    const tf = df.toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'});
+    const tt = dt.toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'});
+    return `${dateStr} ${tf}–${tt}`;
+  } catch { return `${from}–${to}`; }
+}
+</script>
+{% endblock %}

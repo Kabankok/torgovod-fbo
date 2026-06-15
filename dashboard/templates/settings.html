@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Настройки{% endblock %}
+
+{% block content %}
+<div x-data="settingsApp()" class="h-full overflow-y-auto">
+  <div class="max-w-2xl mx-auto px-6 py-10">
+
+    <h1 class="text-xl font-semibold text-ink-primary">Подключение к Ozon</h1>
+    <p class="text-sm text-ink-secondary mt-1">
+      Вставьте свои ключи Ozon Seller API — данные останутся только на вашем компьютере (в файле <code class="text-ink-muted">.env</code>).
+    </p>
+
+    {% if has_tokens %}
+    <div class="mt-4 flex items-center gap-2 text-sm text-green-400 bg-green-500/10 px-3 py-2 rounded-lg">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      Ключи сохранены (Client-Id: {{ client_id_masked }}). Можно перезаписать.
+    </div>
+    {% endif %}
+
+    <div class="mt-6 space-y-4">
+      <div>
+        <label class="block text-sm font-medium text-ink-primary mb-1">Client-Id</label>
+        <input x-model="clientId" type="text" placeholder="например, 123456"
+               class="w-full bg-surface-1 border border-surface-2 rounded-lg px-3 py-2 text-sm text-ink-primary focus:outline-none focus:border-blue-500">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-ink-primary mb-1">Api-Key</label>
+        <input x-model="apiKey" type="password" placeholder="вставьте ключ API"
+               class="w-full bg-surface-1 border border-surface-2 rounded-lg px-3 py-2 text-sm text-ink-primary focus:outline-none focus:border-blue-500">
+      </div>
+
+      <button @click="save()" :disabled="saving"
+              class="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors">
+        <span x-show="!saving">Сохранить и продолжить</span>
+        <span x-show="saving">Сохраняю…</span>
+      </button>
+
+      <p x-show="error" x-text="error" class="text-sm text-red-400"></p>
+    </div>
+
+    <div class="mt-10 border-t border-surface-2 pt-6">
+      <h2 class="text-sm font-semibold text-ink-primary">Где взять ключи?</h2>
+      <ol class="mt-2 text-sm text-ink-secondary list-decimal list-inside space-y-1">
+        <li>Зайдите в личный кабинет продавца Ozon (seller.ozon.ru).</li>
+        <li>Настройки → <span class="text-ink-primary">Seller API</span> → «Сгенерировать ключ».</li>
+        <li>Выберите роль <span class="text-ink-primary">Admin read only</span> (или Admin) и скопируйте Client-Id и Api-Key.</li>
+      </ol>
+      <p class="mt-3 text-xs text-ink-muted">Инструмент только читает данные и помогает планировать поставки. Ключи никуда не отправляются, кроме официального API Ozon.</p>
+    </div>
+
+  </div>
+</div>
+
+<script>
+function settingsApp() {
+  return {
+    clientId: '', apiKey: '', saving: false, error: '',
+    async save() {
+      this.error = '';
+      if (!this.clientId.trim() || !this.apiKey.trim()) { this.error = 'Заполните оба поля'; return; }
+      this.saving = true;
+      try {
+        const r = await fetch('/api/settings', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({client_id: this.clientId.trim(), api_key: this.apiKey.trim()})
+        });
+        const d = await r.json();
+        if (d.ok) { window.location.href = '/fbo'; }
+        else { this.error = d.error || 'Ошибка сохранения'; }
+      } catch (e) { this.error = String(e); }
+      finally { this.saving = false; }
+    }
+  }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,72 @@
+/* OzonAuto Dashboard — dark theme */
+
+main { scroll-behavior: smooth; }
+
+thead tr { position: sticky; top: 0; }
+
+tbody tr.cursor-pointer { cursor: pointer; }
+
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+canvas { display: block; }
+
+/* Card glow */
+.card-glow {
+  transition: box-shadow 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
+}
+.card-glow:hover {
+  box-shadow: 0 0 0 1px rgba(96,165,250,0.25), 0 4px 24px rgba(96,165,250,0.10);
+  border-color: rgba(96,165,250,0.3) !important;
+  transform: translateY(-1px);
+}
+
+/* Table row glow */
+.row-hover { cursor: pointer; transition: background 0.12s ease; }
+.row-hover:hover { background: rgba(96,165,250,0.07) !important; }
+
+/* Active nav item */
+.nav-active {
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important;
+  box-shadow: 0 2px 10px rgba(37,99,235,0.45);
+}
+
+/* Dark inputs */
+input[type="text"], select {
+  background-color: #1f2937 !important;
+  color: #f3f4f6 !important;
+  border-color: #374151 !important;
+}
+input[type="text"]::placeholder { color: #6b7280 !important; }
+input[type="text"]:focus, select:focus {
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 2px rgba(59,130,246,0.18) !important;
+  outline: none !important;
+}
+
+/* Glow submit button */
+button[type="submit"] {
+  transition: box-shadow 0.15s ease, background-color 0.15s ease;
+}
+button[type="submit"]:hover {
+  box-shadow: 0 0 16px rgba(59,130,246,0.4);
+}
+
+/* Badge pills */
+.badge-green { background: rgba(52,211,153,0.12); color: #34d399; border: 1px solid rgba(52,211,153,0.2); }
+.badge-gray  { background: rgba(107,114,128,0.15); color: #9ca3af; border: 1px solid rgba(107,114,128,0.2); }
+.badge-yellow{ background: rgba(251,191,36,0.12); color: #fbbf24; border: 1px solid rgba(251,191,36,0.2); }
+
+/* Hide number input spinners globally */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+input[type="number"] { -moz-appearance: textfield; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: #0d1117; }
+::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #4b5563; }

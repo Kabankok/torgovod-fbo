@@ -1,0 +1,17 @@
+# секреты и локальные данные — НЕ попадают в репозиторий
+.env
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,1257 @@
+{% extends "base.html" %}
+{% block title %}Отгрузка FBO{% endblock %}
+
+{% block content %}
+<div x-data="fboApp()" x-init="init()" class="flex flex-col h-full overflow-hidden">
+
+  <!-- ── Header ─────────────────────────────────────────────────────────── -->
+  <div class="border-b border-surface-2 flex-shrink-0">
+
+    <!-- Row 1: title + status pills + buttons -->
+    <div class="flex items-center justify-between px-6 pt-3 pb-2 gap-4">
+      <div class="flex-shrink-0">
+        <h1 class="text-lg font-semibold text-ink-primary">Отгрузка FBO</h1>
+        <p class="text-xs text-ink-muted mt-0.5">Что грузить · Когда грузить · Куда грузить</p>
+      </div>
+
+      <!-- Status pills -->
+      <div class="flex items-center gap-2 flex-wrap">
+        <div class="flex items-center gap-1.5 bg-red-500/10 text-red-400 text-xs font-medium px-3 py-1.5 rounded-full">
+          <span class="w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0"></span>
+          Дефицит: <span class="font-bold ml-1" x-text="stats.skus_deficit || 0"></span>
+        </div>
+        <div class="flex items-center gap-1.5 bg-yellow-500/10 text-yellow-400 text-xs font-medium px-3 py-1.5 rounded-full">
+          <span class="w-1.5 h-1.5 rounded-full bg-yellow-400 flex-shrink-0"></span>
+          Риск: <span class="font-bold ml-1" x-text="stats.skus_risk || 0"></span>
+        </div>
+        <div class="flex items-center gap-1.5 bg-blue-500/10 text-blue-400 text-xs font-medium px-3 py-1.5 rounded-full">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
+          К отгрузке: <span class="font-bold ml-1" x-text="stats.total_units_to_ship || 0"></span> шт
+        </div>
+        <div class="text-xs text-ink-muted" x-show="stats.last_sync">
+          Обновлено: <span x-text="stats.last_sync || '—'"></span>
+        </div>
+      </div>
+
+      <!-- Action buttons -->
+      <div class="flex items-center gap-2 flex-shrink-0">
+        <a href="/fbo/clusters"
+           class="flex items-center gap-2 px-4 py-2 bg-surface-2 hover:bg-surface-3 text-ink-secondary hover:text-ink-primary text-sm font-medium rounded-lg transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/>
+          </svg>
+          Кластеры
+        </a>
+        <a href="/fbo/orders"
+           class="flex items-center gap-2 px-4 py-2 bg-surface-2 hover:bg-surface-3 text-ink-secondary hover:text-ink-primary text-sm font-medium rounded-lg transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+          </svg>
+          Заявки
+        </a>
+        <a href="/fbo/slot-hunter"
+           class="flex items-center gap-2 px-4 py-2 bg-surface-2 hover:bg-surface-3 text-ink-secondary hover:text-ink-primary text-sm font-medium rounded-lg transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+          </svg>
+          Слот-хантер
+        </a>
+        <button @click="runSync()" :disabled="syncing"
+                class="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors">
+          <svg class="w-4 h-4" :class="syncing ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+          <span x-text="syncing ? 'Обновление...' : 'Обновить данные'"></span>
+        </button>
+      </div>
+    </div>
+
+    {# Свежесть данных + статусы шагов: одной полосой, чтобы было видно сразу #}
+    <div x-show="freshness.summary_date || syncSteps.length > 0" class="px-6 pb-2 -mt-1">
+      <div class="flex items-center gap-3 text-xs flex-wrap">
+
+        {# Главный бейдж: на какую дату данные #}
+        <template x-if="freshness.summary_date">
+          <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full font-medium"
+                :class="freshness.summary_fresh
+                          ? 'bg-emerald-500/15 text-emerald-400'
+                          : 'bg-amber-500/15 text-amber-400'"
+                :title="'Снимок данных карточек на ' + freshness.summary_date">
+            <span class="w-1.5 h-1.5 rounded-full"
+                  :class="freshness.summary_fresh ? 'bg-emerald-400' : 'bg-amber-400'"></span>
+            <span x-text="freshness.summary_fresh
+                            ? 'Данные на сегодня'
+                            : ('Снимок ' + freshness.summary_date)"></span>
+          </span>
+        </template>
+
+        {# Бейдж оборачиваемости: подсвечивается, если turnover-шаг отстал на сутки+ #}
+        <template x-if="freshness.turnover_at && !freshness.turnover_fresh">
+          <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full font-medium bg-amber-500/15 text-amber-400"
+                :title="'Шаг «оборачиваемость» последний раз отработал ' + freshness.turnover_at.replace('T',' ').slice(0,19)">
+            <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+            Оборачиваемость отстаёт
+          </span>
+        </template>
+
+        {# Шаги последнего синка (Phase 0) #}
+        <template x-if="syncSteps.length > 0">
+          <span class="text-ink-muted/60">Шаги:</span>
+        </template>
+        <template x-for="step in syncSteps" :key="step.step">
+          <div class="flex items-center gap-1.5"
+               :title="(step.error_message ? 'Ошибка: ' + step.error_message + ' · ' : '') + (step.finished_at ? 'завершён ' + step.finished_at.replace('T',' ').slice(0,19) : 'выполняется...')">
+            <span class="w-1.5 h-1.5 rounded-full inline-block" :class="stepDotClass(step.status)"></span>
+            <span :class="step.status === 'error' ? 'text-red-400' : (step.status === 'running' ? 'text-blue-400' : 'text-ink-secondary')"
+                  x-text="stepLabel(step.step)"></span>
+            <template x-if="step.status === 'error'">
+              <span class="text-red-400/70">⚠</span>
+            </template>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- Row 2: financial dashboard cards -->
+    <div class="grid grid-cols-4 gap-3 px-6 pb-3">
+
+      <!-- Card 1: На складах FBO -->
+      <div class="bg-surface-2 rounded-lg px-3.5 py-2.5">
+        <div class="text-xs text-ink-muted mb-1">На складах FBO</div>
+        <div class="text-xl font-bold text-ink-primary" x-text="fmt(stats.total_fact_stock || 0) + ' шт'"></div>
+        <div class="mt-1.5 space-y-0.5 text-xs">
+          <div class="flex items-center justify-between">
+            <span class="text-ink-muted">Цена продажи</span>
+            <span class="text-green-400 font-medium" x-text="fmtM(stats.stock_value_sell)"></span>
+          </div>
+          <div class="flex items-center justify-between" x-show="stats.stock_value_cost">
+            <span class="text-ink-muted">Цена закупа</span>
+            <span class="text-ink-secondary font-medium" x-text="fmtM(stats.stock_value_cost)"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 2: В пути -->
+      <div class="bg-surface-2 rounded-lg px-3.5 py-2.5">
+        <div class="text-xs text-ink-muted mb-1">В пути на Ozon</div>
+        <div class="text-xl font-bold"
+             :class="(stats.total_in_transit||0) > 0 ? 'text-blue-400' : 'text-ink-muted'"
+             x-text="fmt(stats.total_in_transit || 0) + ' шт'"></div>
+        <div class="mt-1.5 space-y-0.5 text-xs">
+          <div class="flex items-center justify-between">
+            <span class="text-ink-muted">Цена продажи</span>
+            <span class="text-blue-400 font-medium" x-text="fmtM(stats.transit_value_sell)"></span>
+          </div>
+          <div class="flex items-center justify-between" x-show="stats.transit_value_cost">
+            <span class="text-ink-muted">Цена закупа</span>
+            <span class="text-ink-secondary font-medium" x-text="fmtM(stats.transit_value_cost)"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 3: Упущено выручки -->
+      <div class="bg-surface-2 rounded-lg px-3.5 py-2.5">
+        <div class="text-xs text-ink-muted mb-1">Упущено выручки</div>
+        <div class="text-xl font-bold"
+             :class="(stats.missed_revenue_daily||0) > 0 ? 'text-red-400' : 'text-ink-muted'"
+             x-text="(stats.missed_revenue_daily||0) > 0 ? fmtM(stats.missed_revenue_daily) + '/день' : '—'"></div>
+        <div class="mt-1.5 space-y-0.5 text-xs">
+          <div class="flex items-center justify-between">
+            <span class="text-ink-muted">SKU без стока</span>
+            <span class="font-medium" :class="(stats.missed_skus||0) > 0 ? 'text-red-400' : 'text-ink-muted'"
+                  x-text="(stats.missed_skus || 0) + ' шт'"></span>
+          </div>
+          <div class="flex items-center justify-between" x-show="stats.missed_revenue_30d > 0">
+            <span class="text-ink-muted">≈ за 30 дней</span>
+            <span class="text-ink-secondary font-medium" x-text="fmtM(stats.missed_revenue_30d)"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 4: Тренд спроса -->
+      <div class="bg-surface-2 rounded-lg px-3.5 py-2.5">
+        <div class="text-xs text-ink-muted mb-1">Тренд спроса</div>
+        <template x-if="stats.total_qty_30d > 0">
+          <div>
+            <div class="text-xl font-bold flex items-baseline gap-1"
+                 :class="(stats.total_qty_10d/10) >= (stats.total_qty_30d/30) ? 'text-green-400' : 'text-red-400'">
+              <span x-text="(stats.total_qty_10d/10) >= (stats.total_qty_30d/30) ? '↑' : '↓'"></span>
+              <span x-text="Math.abs(Math.round((stats.total_qty_10d/10 - stats.total_qty_30d/30) / (stats.total_qty_30d/30) * 100)) + '%'"></span>
+              <span class="text-xs font-normal text-ink-muted">10д vs 30д</span>
+            </div>
+            <div class="mt-1.5 space-y-0.5 text-xs">
+              <div class="flex items-center justify-between">
+                <span class="text-ink-muted">Ср. скорость</span>
+                <span class="text-ink-secondary" x-text="(stats.total_qty_10d/10).toFixed(1) + ' / ' + (stats.total_qty_30d/30).toFixed(1) + ' шт/д'"></span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-ink-muted">Выручка 30д</span>
+                <span class="text-green-400 font-medium" x-text="fmtM(stats.total_revenue_30d)"></span>
+              </div>
+            </div>
+          </div>
+        </template>
+        <template x-if="!(stats.total_qty_30d > 0)">
+          <div class="text-sm text-ink-muted mt-2">Нет данных</div>
+        </template>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── Filter Bar ──────────────────────────────────────────────────────── -->
+  <div class="flex items-center gap-3 px-6 py-3 border-b border-surface-2 flex-shrink-0 bg-surface-1">
+    <!-- Search -->
+    <div class="relative flex-1 max-w-xs">
+      <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-muted pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+      </svg>
+      <input x-model="searchQuery" @input="applyFilters()"
+             type="text" placeholder="Артикул или название..."
+             class="w-full pl-9 pr-3 py-2 text-sm bg-surface-2 border border-surface-2 rounded-lg text-ink-primary placeholder-ink-muted focus:outline-none focus:border-blue-500"/>
+    </div>
+
+    <!-- Status filter -->
+    <div class="flex items-center gap-1 bg-surface-2 rounded-lg p-1">
+      <template x-for="s in statusFilters" :key="s.value">
+        <button @click="toggleStatus(s.value)"
+                :class="activeStatuses.includes(s.value) ? s.activeClass : 'text-ink-muted hover:text-ink-secondary'"
+                class="px-3 py-1 text-xs font-medium rounded-md transition-colors"
+                x-text="s.label"></button>
+      </template>
+    </div>
+
+    <!-- ABC period toggle -->
+    <div class="flex items-center gap-1.5 text-xs text-ink-muted flex-shrink-0">
+      <span>ABC за:</span>
+      <div class="flex items-center gap-0.5 bg-surface-2 rounded-md p-0.5">
+        <template x-for="p in [10, 28, 30]" :key="p">
+          <button @click="setAbcPeriod(p)"
+                  :class="abcPeriod === p ? 'bg-blue-600 text-white' : 'text-ink-muted hover:text-ink-secondary'"
+                  class="px-2 py-0.5 rounded text-xs font-medium transition-colors"
+                  x-text="p + 'д'"></button>
+        </template>
+      </div>
+    </div>
+
+    <!-- ABC Revenue filter -->
+    <div class="flex items-center gap-1.5 text-xs text-ink-muted flex-shrink-0">
+      <span>ABC ₽:</span>
+      <div class="flex items-center gap-0.5 bg-surface-2 rounded-md p-0.5">
+        <template x-for="letter in ['A','B','C']" :key="'r'+letter">
+          <button @click="toggleAbcRev(letter)"
+                  :class="abcRevFilter.includes(letter) ? abcFilterClass(letter) : 'text-ink-muted hover:text-ink-secondary'"
+                  class="px-2 py-0.5 rounded text-xs font-bold transition-colors"
+                  x-text="letter"></button>
+        </template>
+      </div>
+    </div>
+
+    <!-- ABC Qty filter -->
+    <div class="flex items-center gap-1.5 text-xs text-ink-muted flex-shrink-0">
+      <span>ABC шт:</span>
+      <div class="flex items-center gap-0.5 bg-surface-2 rounded-md p-0.5">
+        <template x-for="letter in ['A','B','C']" :key="'q'+letter">
+          <button @click="toggleAbcQty(letter)"
+                  :class="abcQtyFilter.includes(letter) ? abcFilterClass(letter) : 'text-ink-muted hover:text-ink-secondary'"
+                  class="px-2 py-0.5 rounded text-xs font-bold transition-colors"
+                  x-text="letter"></button>
+        </template>
+      </div>
+    </div>
+
+    <!-- Only with recommendation -->
+    <label class="flex items-center gap-2 text-sm text-ink-secondary cursor-pointer select-none">
+      <input type="checkbox" x-model="onlyWithRec" @change="applyFilters()"
+             class="w-4 h-4 rounded border-surface-2 accent-blue-500">
+      Только с рекомендацией
+    </label>
+
+    <!-- Only active (грузим) -->
+    <label class="flex items-center gap-2 text-sm text-ink-secondary cursor-pointer select-none">
+      <input type="checkbox" x-model="onlyActive" @change="applyFilters()"
+             class="w-4 h-4 rounded border-surface-2 accent-blue-500">
+      Только «Грузим»
+    </label>
+
+    <span class="text-xs text-ink-muted ml-auto" x-text="`${filtered.length} из ${skus.length} SKU`"></span>
+  </div>
+
+  <!-- ── Main area: Table + Detail Panel ───────────────────────────────── -->
+  <div class="flex flex-1 overflow-hidden">
+
+    <!-- ── Table ──────────────────────────────────────────────────────── -->
+    <div class="flex-1 overflow-auto" :class="selected ? 'w-1/2' : 'w-full'">
+      <table class="w-full text-sm">
+        <thead class="sticky top-0 z-10 bg-surface-1 border-b border-surface-2">
+          <tr>
+            <th class="text-left px-4 py-3 text-xs font-medium text-ink-muted w-10 relative group cursor-help">
+              #
+              <div class="absolute left-0 top-full mt-1 w-52 p-2.5 bg-gray-900 border border-white/10 text-white text-xs rounded-lg shadow-xl pointer-events-none z-50 opacity-0 group-hover:opacity-100 transition-opacity duration-150 leading-relaxed font-normal normal-case whitespace-normal">
+                Порядковый номер в текущей сортировке.
+              </div>
+            </th>
+            <th class="text-left px-4 py-3 text-xs font-medium text-ink-muted cursor-pointer hover:text-ink-primary relative group" @click="sortBy('name')">
+              Артикул / Название <span x-show="sortField==='name'" x-text="sortDir===1?'↑':'↓'"></span>
+              <div class="absolute left-0 top-full mt-1 w-60 p-2.5 bg-gray-900 border border-white/10 text-white text-xs rounded-lg shadow-xl pointer-events-none z-50 opacity-0 group-hover:opacity-100 transition-opacity duration-150 leading-relaxed font-normal normal-case whitespace-normal">
+                Артикул продавца (offer_id) и полное название товара из каталога Ozon. Кликните для сортировки.
+              </div>
+            </th>
+            <th class="text-center px-3 py-3 text-xs font-medium text-ink-muted cursor-pointer hover:text-ink-primary relative group" @click="sortBy('abc_revenue')">
+              ABC <span class="text-ink-muted/60 font-normal" x-text="'(р/' + abcPeriod + 'д)'"></span>
+              <span x-show="sortField==='abc_revenue'" x-text="sortDir===1?'↑':'↓'"></span>
+              <div class="absolute left-0 top-full mt-1 w-72 p-2.5 bg-gray-900 border border-white/10 text-white text-xs rounded-lg shadow-xl pointer-events-none z-50 opacity-0 group-hover:opacity-100 transition-opacity duration-150 leading-relaxed font-normal normal-case whitespace-normal">
+                Двухфакторный ABC-анализ. Первая буква — по выручке за 30д (р). Вторая — по количеству за выбранный период (кнопки 10/28/30д вверху). A = топ 80% продаж, B = следующие 15%, C = остальные 5%. Используйте фильтры ABC ₽ и ABC шт чтобы выбрать нужные категории.
+              </div>
+            </th>
+            <th class="text-right px-3 py-3 text-xs font-medium text-ink-muted cursor-pointer hover:text-ink-primary relative group" @click="sortBy('fact_stock')">
+              Факт FBO <span x-show="sortField==='fact_stock'" x-text="sortDir===1?'↑':'↓'"></span>
+              <div class="absolute right-0 top-full mt-1 w-56 p-2.5 bg-gray-900 border border-white/10 text-white text-xs rounded-lg shadow-xl pointer-events-none z-50 opacity-0 group-hover:opacity-100 transition-opacity duration-150 leading-relaxed font-normal normal-case whitespace-normal">
+                Текущий остаток на складах Ozon (FBO) суммарно по всем кластерам. Кликните для сортировки.
+              </div>
+            </th>
+            <th class="text-right px-3 py-3 text-xs font-medium text-ink-muted cursor-pointer hover:text-ink-primary relative group" @click="sortBy('in_transit')">
+              В пути <span x-show="sortField==='in_transit'" x-text="sortDir===1?'↑':'↓'"></span>
+              <div class="absolute right-0 top-full mt-1 w-60 p-2.5 bg-gray-900 border border-white/10 text-white text-xs rounded-lg shadow-xl pointer-events-none z-50 opacity-0 group-hover:opacity-100 transition-opacity duration-150 leading-relaxed font-normal normal-case whitespace-normal">
+                Товары, которые уже отгружены и едут на склады Ozon, но ещё не приняты. Учитываются в расчёте рекомендации (факт + в_пути = доступный сток). Кликните для сортировки.
+              </div>
+            </th>
+            <th class="text-right px-3 py-3 text-xs font-medium text-ink-muted cursor-pointer hover:text-ink-primary relative group" @click="sortBy('days_to_zero')">
+              Дней <span x-show="sortField==='days_to_zero'" x-text="sortDir===1?'↑':'↓'"></span>
+              <div class="absolute right-0 top-full mt-1 w-60 p-2.5 bg-gray-900 border border-white/10 text-white text-xs rounded-lg shadow-xl pointer-events-none z-50 opacity-0 group-hover:opacity-100 transition-opacity duration-150 leading-relaxed font-normal normal-case whitespace-normal">
+                На сколько дней хватит текущего стока при среднем темпе продаж. Красный &lt; 7 дн = дефицит, жёлтый &lt; 14 дн = риск. Кликните для сортировки.
+              </div>
+            </th>
+            <th class="text-right px-3 py-3 text-xs font-medium text-ink-muted cursor-pointer hover:text-ink-primary relative group" @click="sortBy('avg_daily_qty')">
+              Спрос/д <span x-show="sortField==='avg_daily_qty'" x-text="sortDir===1?'↑':'↓'"></span>
+              <div class="absolute right-0 top-full mt-1 w-56 p-2.5 bg-gray-900 border border-white/10 text-white text-xs rounded-lg shadow-xl pointer-events-none z-50 opacity-0 group-hover:opacity-100 transition-opacity duration-150 leading-relaxed font-normal normal-case whitespace-normal">
+                Средний дневной спрос за 30 дней: продажи_30д ÷ 30. Используется для расчёта дней покрытия и рекомендации. Кликните для сортировки.
+              </div>
+            </th>
+            <th class="text-right px-3 py-3 text-xs font-medium text-ink-muted cursor-pointer hover:text-ink-primary relative group" @click="sortBy('revenue_30d')">
+              Выручка 30д <span x-show="sortField==='revenue_30d'" x-text="sortDir===1?'↑':'↓'"></span>
+              <div class="absolute right-0 top-full mt-1 w-60 p-2.5 bg-gray-900 border border-white/10 text-white text-xs rounded-lg shadow-xl pointer-events-none z-50 opacity-0 group-hover:opacity-100 transition-opacity duration-150 leading-relaxed font-normal normal-case whitespace-normal">
+                Суммарная выручка за последние 30 дней. Кликните для сортировки — удобно приоритизировать отгрузку по фактическому вкладу в оборот.
+              </div>
+            </th>
+            <th class="text-right px-3 py-3 text-xs font-medium text-ink-muted cursor-pointer hover:text-ink-primary relative group" @click="sortBy('price_per_unit')">
+              ₽/шт <span x-show="sortField==='price_per_unit'" x-text="sortDir===1?'↑':'↓'"></span>
+              <div class="absolute right-0 top-full mt-1 w-60 p-2.5 bg-gray-900 border border-white/10 text-white text-xs rounded-lg shadow-xl pointer-events-none z-50 opacity-0 group-hover:opacity-100 transition-opacity duration-150 leading-relaxed font-normal normal-case whitespace-normal">
+                Средняя цена продажи: выручка 30д ÷ кол-во 30д. Помогает выделить дорогие товары — они важны даже при низком ABC по штукам. Кликните для сортировки.
+              </div>
+            </th>
+            <th class="text-right px-3 py-3 text-xs font-medium text-ink-muted cursor-pointer hover:text-ink-primary relative group" @click="sortBy('total_recommendation')">
+              Рек. <span x-show="sortField==='total_recommendation'" x-text="sortDir===1?'↑':'↓'"></span>
+              <div class="absolute right-0 top-full mt-1 w-64 p-2.5 bg-gray-900 border border-white/10 text-white text-xs rounded-lg shadow-xl pointer-events-none z-50 opacity-0 group-hover:opacity-100 transition-opacity duration-150 leading-relaxed font-normal normal-case whitespace-normal">
+                Суммарная рекомендация к отгрузке по всем кластерам. Формула: продажи_28д × буфер_ABC − сток − в_пути. Буфер: A+Зелёный = 1.5×, A/B+Жёлтый = 1.25×, остальные = 1×. Кликните для сортировки.
+              </div>
+            </th>
+            <th class="text-center px-3 py-3 text-xs font-medium text-ink-muted cursor-pointer hover:text-ink-primary relative group" @click="sortBy('status')">
+              Статус <span x-show="sortField==='status'" x-text="sortDir===1?'↑':'↓'"></span>
+              <div class="absolute right-0 top-full mt-1 w-64 p-2.5 bg-gray-900 border border-white/10 text-white text-xs rounded-lg shadow-xl pointer-events-none z-50 opacity-0 group-hover:opacity-100 transition-opacity duration-150 leading-relaxed font-normal normal-case whitespace-normal">
+                🔴 Дефицит — остаток &lt; 7 дней. 🟡 Риск — &lt; 14 дней или есть рекомендация. 🟢 Норма — всё хорошо. 🔵 Избыток — остаток &gt; 90 дней и рекомендация = 0. Кликните для сортировки.
+              </div>
+            </th>
+            <th class="text-center px-3 py-3 text-xs font-medium text-ink-muted cursor-pointer hover:text-ink-primary relative group" @click="sortBy('is_active')">
+              Грузим <span x-show="sortField==='is_active'" x-text="sortDir===1?'↑':'↓'"></span>
+              <div class="absolute right-0 top-full mt-1 w-52 p-2.5 bg-gray-900 border border-white/10 text-white text-xs rounded-lg shadow-xl pointer-events-none z-50 opacity-0 group-hover:opacity-100 transition-opacity duration-150 leading-relaxed font-normal normal-case whitespace-normal">
+                Пометить товар как активный для отгрузки. Неактивные товары можно скрыть фильтром «Только Грузим». Кликните для сортировки.
+              </div>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-if="loading">
+            <tr><td colspan="12" class="text-center py-16 text-ink-muted">
+              <svg class="w-6 h-6 animate-spin mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+              </svg>
+              Загрузка...
+            </td></tr>
+          </template>
+          <template x-if="!loading && filtered.length === 0">
+            <tr><td colspan="12" class="text-center py-16 text-ink-muted">
+              Нет данных. Нажмите «Обновить данные».
+            </td></tr>
+          </template>
+          <template x-for="(row, idx) in paged" :key="row.sku">
+            <tr @click="openDetail(row)"
+                :class="selected?.sku === row.sku ? 'bg-blue-500/10 border-l-2 border-blue-500' : 'hover:bg-surface-2/50 border-l-2 border-transparent'"
+                class="border-b border-surface-2/50 cursor-pointer transition-colors group">
+              <td class="px-4 py-2.5 text-xs text-ink-muted" x-text="(page-1)*pageSize + idx + 1"></td>
+              <td class="px-4 py-2.5">
+                <div class="font-medium text-ink-primary break-words" x-text="row.name || '—'"></div>
+                <div class="text-xs text-ink-muted font-mono mt-0.5" x-text="row.offer_id || row.sku"></div>
+              </td>
+              <td class="px-3 py-2.5 text-center">
+                <span class="font-mono text-xs" :class="abcColor(row.abc_revenue)" x-text="row.abc_revenue || '?'"></span>
+                <span class="text-ink-muted text-xs">/</span>
+                <span class="font-mono text-xs" :class="abcColor(abcQtyMap[row.sku] || row.abc_qty)"
+                      x-text="abcQtyMap[row.sku] || row.abc_qty || '?'"></span>
+              </td>
+              <td class="px-3 py-2.5 text-right font-mono text-sm" x-text="fmt(row.fact_stock)"></td>
+              <td class="px-3 py-2.5 text-right font-mono text-sm text-ink-secondary" x-text="fmt(row.in_transit)"></td>
+              <td class="px-3 py-2.5 text-right">
+                <span class="font-mono text-sm" :class="daysColor(row.days_to_zero)"
+                      x-text="row.days_to_zero != null ? row.days_to_zero.toFixed(1) : '∞'"></span>
+              </td>
+              <td class="px-3 py-2.5 text-right font-mono text-sm text-ink-secondary"
+                  x-text="row.avg_daily_qty ? row.avg_daily_qty.toFixed(1) : '0.0'"></td>
+              <td class="px-3 py-2.5 text-right font-mono text-sm text-green-400"
+                  x-text="row.revenue_30d > 0 ? fmtM(row.revenue_30d) : '—'"></td>
+              <td class="px-3 py-2.5 text-right font-mono text-sm text-ink-secondary"
+                  x-text="row.price_per_unit > 0 ? Math.round(row.price_per_unit).toLocaleString('ru') + ' ₽' : '—'"></td>
+              <td class="px-3 py-2.5 text-right">
+                <span x-show="row.total_recommendation > 0"
+                      class="font-bold text-blue-400 font-mono text-sm" x-text="row.total_recommendation"></span>
+                <span x-show="!row.total_recommendation" class="text-ink-muted text-sm">—</span>
+              </td>
+              <td class="px-3 py-2.5 text-center">
+                <span :class="statusBadge(row.status)" class="px-2 py-0.5 rounded-full text-xs font-medium"
+                      x-text="row.status"></span>
+              </td>
+              <td class="px-3 py-2.5 text-center">
+                <button @click.stop="toggleActive(row)"
+                        :class="row.is_active ? 'text-green-400 hover:text-green-300' : 'text-ink-muted hover:text-ink-secondary'"
+                        class="transition-colors">
+                  <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                    <path x-show="row.is_active" fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                    <path x-show="!row.is_active" fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
+                  </svg>
+                </button>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+
+      <!-- Pagination -->
+      <div x-show="totalPages > 1" class="flex items-center justify-between px-6 py-3 border-t border-surface-2 bg-surface-1">
+        <span class="text-xs text-ink-muted" x-text="`Страница ${page} из ${totalPages}`"></span>
+        <div class="flex items-center gap-1">
+          <button @click="if(page>1){page--;updatePage();}" :disabled="page<=1" class="px-3 py-1.5 text-xs bg-surface-2 hover:bg-surface-3 disabled:opacity-40 rounded-lg transition-colors">←</button>
+          <template x-for="p in pageRange" :key="p">
+            <button @click="page=p;updatePage();" :class="page===p ? 'bg-blue-600 text-white' : 'bg-surface-2 hover:bg-surface-3 text-ink-secondary'"
+                    class="px-3 py-1.5 text-xs rounded-lg transition-colors" x-text="p"></button>
+          </template>
+          <button @click="if(page<totalPages){page++;updatePage();}" :disabled="page>=totalPages" class="px-3 py-1.5 text-xs bg-surface-2 hover:bg-surface-3 disabled:opacity-40 rounded-lg transition-colors">→</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Detail Panel ────────────────────────────────────────────────── -->
+    <div x-show="selected" x-cloak
+         class="w-[480px] flex-shrink-0 border-l border-surface-2 bg-surface-1 overflow-y-auto flex flex-col">
+      <template x-if="selected">
+        <div>
+          <!-- Panel Header -->
+          <div class="flex items-start justify-between px-5 py-4 border-b border-surface-2">
+            <div class="flex-1 min-w-0">
+              <div class="font-semibold text-ink-primary text-base leading-tight" x-text="selected.name || '—'"></div>
+              <div class="flex items-center gap-2 mt-1">
+                <span class="font-mono text-xs text-ink-muted" x-text="selected.offer_id || selected.sku"></span>
+                <span class="w-1 h-1 rounded-full bg-ink-muted"></span>
+                <span :class="statusBadge(selected.status)" class="px-2 py-0.5 rounded-full text-xs font-medium"
+                      x-text="selected.status"></span>
+              </div>
+            </div>
+            <div class="flex items-center gap-1 ml-3 flex-shrink-0">
+              <a :href="'https://www.ozon.ru/product/' + selected.sku + '/'"
+                 target="_blank" rel="noopener"
+                 title="Открыть товар на Ozon"
+                 class="text-ink-muted hover:text-blue-400 p-1 rounded transition-colors">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                </svg>
+              </a>
+              <button @click="printDetail()"
+                      title="Распечатать лист отгрузки"
+                      class="text-ink-muted hover:text-blue-400 p-1 rounded transition-colors">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/>
+                </svg>
+              </button>
+              <button @click="selected=null" class="text-ink-muted hover:text-ink-primary p-1 rounded">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- Key Metrics: Row 1 — Остатки -->
+          <div class="grid grid-cols-2 gap-3 px-5 pt-4 pb-2">
+            <div class="bg-surface-2 rounded-lg p-3">
+              <div class="text-xs text-ink-muted mb-1">На складах FBO</div>
+              <div class="text-2xl font-bold text-ink-primary" x-text="fmt(selected.fact_stock)"></div>
+              <div class="text-xs text-ink-muted mt-0.5">шт. по всем кластерам</div>
+            </div>
+            <div class="bg-surface-2 rounded-lg p-3">
+              <div class="text-xs text-ink-muted mb-1">В пути на Ozon</div>
+              <div class="text-2xl font-bold"
+                   :class="(selected.in_transit||0) > 0 ? 'text-blue-400' : 'text-ink-muted'"
+                   x-text="fmt(selected.in_transit || 0)"></div>
+              <div class="text-xs text-ink-muted mt-0.5">
+                <span x-show="(selected.in_transit||0) > 0">едет на склад</span>
+                <span x-show="!(selected.in_transit||0)">ничего не едет</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Key Metrics: Row 2 — Покрытие -->
+          <div class="grid grid-cols-2 gap-3 px-5 py-2">
+            <div class="bg-surface-2 rounded-lg p-3">
+              <div class="text-xs text-ink-muted mb-1">Дней покрытия</div>
+              <div class="text-2xl font-bold" :class="daysColor(selected.days_to_zero)"
+                   x-text="selected.days_to_zero != null ? selected.days_to_zero.toFixed(1) : '∞'"></div>
+              <div class="text-xs text-ink-muted mt-0.5">
+                при <span x-text="(selected.avg_daily_qty||0).toFixed(1)"></span> шт/день
+              </div>
+            </div>
+            <div class="bg-surface-2 rounded-lg p-3">
+              <div class="text-xs text-ink-muted mb-1">К отгрузке</div>
+              <div class="text-2xl font-bold text-blue-400" x-text="fmt(selected.total_recommendation)"></div>
+              <div class="text-xs text-ink-muted mt-0.5">шт. суммарно по кластерам</div>
+            </div>
+          </div>
+
+          <!-- Key Metrics: Row 3 — ABC + Выручка -->
+          <div class="grid grid-cols-2 gap-3 px-5 pt-2 pb-4 border-b border-surface-2">
+            <div class="bg-surface-2 rounded-lg p-3">
+              <div class="text-xs text-ink-muted mb-1">ABC (₽ / шт)</div>
+              <div class="flex items-center gap-2">
+                <span class="text-2xl font-bold" :class="abcColor(selected.abc_revenue)" x-text="selected.abc_revenue || '?'"></span>
+                <span class="text-ink-muted text-lg">/</span>
+                <span class="text-2xl font-bold" :class="abcColor(selected.abc_qty)" x-text="selected.abc_qty || '?'"></span>
+              </div>
+              <div class="text-xs text-ink-muted mt-0.5">По выручке / По кол-ву</div>
+            </div>
+            <div class="bg-surface-2 rounded-lg p-3">
+              <div class="text-xs text-ink-muted mb-1">Выручка 30 дней</div>
+              <div class="text-xl font-bold text-green-400"
+                   x-text="selected.revenue_30d ? (selected.revenue_30d/1000).toFixed(1) + ' тыс ₽' : '—'"></div>
+              <div class="text-xs text-ink-muted mt-0.5">
+                ~<span x-text="selected.qty_30d ? Math.round(selected.revenue_30d / selected.qty_30d) : 0"></span> ₽/шт
+              </div>
+            </div>
+          </div>
+
+          <!-- Ozon Turnover -->
+          <div x-show="selected.ozon_idc_days" class="px-5 py-3 border-b border-surface-2">
+            <div class="text-xs font-medium text-ink-muted uppercase tracking-wider mb-2">Оборачиваемость Ozon</div>
+            <div class="flex items-center gap-6">
+              <div>
+                <div class="text-xs text-ink-muted mb-0.5">IDC</div>
+                <span class="text-base font-semibold" :class="gradeColor(selected.ozon_idc_grade)"
+                      x-text="(selected.ozon_idc_days||0).toFixed(1) + ' дн'"></span>
+              </div>
+              <div>
+                <div class="text-xs text-ink-muted mb-0.5">Оборачиваемость</div>
+                <span class="text-base font-semibold" :class="gradeColor(selected.ozon_grade)"
+                      x-text="(selected.ozon_turnover||0).toFixed(1) + ' дн'"></span>
+              </div>
+              <div>
+                <div class="text-xs text-ink-muted mb-0.5">Спрос Ozon/д</div>
+                <span class="text-base font-semibold text-ink-primary"
+                      x-text="(selected.ozon_idc_days && selected.fact_stock) ? (selected.fact_stock / selected.ozon_idc_days).toFixed(1) + ' шт' : '—'"></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Sales by period -->
+          <div class="px-5 py-3 border-b border-surface-2">
+            <div class="text-xs font-medium text-ink-muted uppercase tracking-wider mb-3">Продажи FBO</div>
+            <div class="grid grid-cols-3 gap-2 mb-2">
+              <div class="bg-surface-2 rounded-lg p-2.5 text-center">
+                <div class="text-lg font-bold text-ink-primary" x-text="fmt(selected.qty_10d)"></div>
+                <div class="text-xs text-ink-muted">10 дн</div>
+                <div class="text-xs text-ink-muted/60 mt-0.5"
+                     x-text="selected.qty_10d ? Math.round(selected.qty_10d/10*10)/10 + '/д' : ''"></div>
+              </div>
+              <div class="bg-surface-2 rounded-lg p-2.5 text-center">
+                <div class="text-lg font-bold text-ink-primary" x-text="fmt(selected.qty_28d)"></div>
+                <div class="text-xs text-ink-muted">28 дн</div>
+                <div class="text-xs text-ink-muted/60 mt-0.5"
+                     x-text="selected.qty_28d ? (selected.qty_28d/28).toFixed(1) + '/д' : ''"></div>
+              </div>
+              <div class="bg-surface-2 rounded-lg p-2.5 text-center">
+                <div class="text-lg font-bold text-ink-primary" x-text="fmt(selected.qty_30d)"></div>
+                <div class="text-xs text-ink-muted">30 дн</div>
+                <div class="text-xs text-ink-muted/60 mt-0.5"
+                     x-text="selected.qty_30d ? (selected.qty_30d/30).toFixed(1) + '/д' : ''"></div>
+              </div>
+            </div>
+            <!-- Trend indicator -->
+            <div class="text-xs text-ink-muted" x-show="selected.qty_10d && selected.qty_30d">
+              <template x-if="selected.qty_30d > 0">
+                <span>
+                  Тренд:
+                  <span :class="(selected.qty_10d/10) > (selected.qty_30d/30) ? 'text-green-400' : 'text-red-400'"
+                        x-text="(selected.qty_10d/10) > (selected.qty_30d/30) ? '↑ растёт' : '↓ падает'"></span>
+                  (<span x-text="((selected.qty_10d/10 - selected.qty_30d/30) / (selected.qty_30d/30) * 100).toFixed(0)"></span>% к ср.)
+                </span>
+              </template>
+            </div>
+          </div>
+
+          <!-- Cluster Recommendations -->
+          <div class="px-5 py-3 border-b border-surface-2">
+            <div class="flex items-center justify-between mb-1">
+              <div class="text-xs font-medium text-ink-muted uppercase tracking-wider">Рекомендации по кластерам</div>
+              <a href="/fbo/clusters" class="text-xs text-blue-400 hover:text-blue-300 transition-colors">Настройки →</a>
+            </div>
+            <p class="text-xs text-ink-muted/70 mb-3">Переключите кластер — спрос перейдёт к ближайшему активному.</p>
+
+            <template x-if="!selected.clusters || selected.clusters.length === 0">
+              <div class="text-sm text-ink-muted">Нет данных — все кластеры отключены или нет рекомендаций</div>
+            </template>
+
+            <div x-show="selected.clusters && selected.clusters.length > 0" class="space-y-0">
+              <template x-for="c in effectiveClusters" :key="c.cluster_name">
+                <div class="py-2 border-b border-surface-2/40 last:border-0 transition-opacity"
+                     :class="c._off ? 'opacity-40' : 'opacity-100'">
+                  <div class="flex items-start gap-2">
+
+                    <!-- Toggle button -->
+                    <button @click="toggleClusterForSku(c.cluster_name)"
+                            :title="c._off ? 'Включить кластер' : 'Исключить из этой отгрузки'"
+                            class="mt-0.5 flex-shrink-0 w-8 h-4 rounded-full transition-colors relative"
+                            :class="c._off ? 'bg-surface-3' : 'bg-green-600'">
+                      <span class="absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform shadow-sm"
+                            :class="c._off ? 'left-0.5' : 'left-4'"></span>
+                    </button>
+
+                    <!-- Cluster info -->
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-center gap-1.5">
+                        <span class="text-xs font-medium"
+                              :class="c._off ? 'text-ink-muted line-through' : 'text-ink-primary'"
+                              x-text="c.cluster_name"></span>
+                        <!-- Where disabled cluster's demand went -->
+                        <template x-if="c._off && c._redirect_to">
+                          <span class="text-xs text-orange-400/80"
+                                x-text="'→ ' + c._redirect_to"></span>
+                        </template>
+                      </div>
+
+                      <!-- Incoming merges (from globally or locally disabled clusters) -->
+                      <template x-if="!c._off && c.merged_from && c.merged_from.length > 0">
+                        <div class="flex flex-wrap gap-1 mt-1">
+                          <template x-for="m in c.merged_from" :key="m.cluster">
+                            <span class="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-orange-500/10 text-orange-400 text-xs rounded">
+                              ↳ <span x-text="m.cluster"></span>: +<span x-text="m.units"></span>
+                            </span>
+                          </template>
+                        </div>
+                      </template>
+
+                      <div class="text-xs text-ink-muted mt-0.5">
+                        На складе: <span x-text="c.fact_stock"></span> шт
+                        <span x-show="c.in_transit > 0"> · Едет: <span x-text="c.in_transit"></span></span>
+                        · Продано 28д: <span x-text="c.qty_28d"></span> шт
+                      </div>
+                    </div>
+
+                    <!-- Recommendation + create order button -->
+                    <div class="flex-shrink-0 text-right">
+                      <template x-if="!c._off && c.recommendation > 0">
+                        <div class="flex flex-col items-end gap-1">
+                          <span class="font-bold text-blue-400 text-sm" x-text="'+' + c.recommendation + ' шт'"></span>
+                          <a :href="'/fbo/orders?create=1&article=' + encodeURIComponent(selected.offer_id || selected.sku) + '&qty=' + c.recommendation + '&cluster=' + encodeURIComponent(c.cluster_name)"
+                             @click.stop
+                             class="text-[10px] px-1.5 py-0.5 bg-blue-500/15 hover:bg-blue-500/25 text-blue-400 rounded transition-colors whitespace-nowrap">
+                            + Заявка
+                          </a>
+                        </div>
+                      </template>
+                      <template x-if="c._off">
+                        <span class="text-ink-muted/50 text-sm line-through" x-text="c._orig_rec > 0 ? c._orig_rec + ' шт' : '—'"></span>
+                      </template>
+                      <template x-if="!c._off && !(c.recommendation > 0)">
+                        <span class="text-ink-muted text-sm">—</span>
+                      </template>
+                    </div>
+                  </div>
+                </div>
+              </template>
+
+              <!-- Local total -->
+              <div class="mt-2 pt-2 flex items-center justify-between text-xs">
+                <span class="text-ink-muted">Итого к отгрузке (с учётом переключений):</span>
+                <span class="font-bold text-blue-400"
+                      x-text="effectiveClusters.filter(c=>!c._off).reduce((s,c)=>s+(c.recommendation||0),0) + ' шт'"></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Actions -->
+          <div class="px-5 py-4 border-b border-surface-2 space-y-3">
+            <div class="text-xs font-medium text-ink-muted uppercase tracking-wider mb-2">Действия</div>
+
+            <!-- Active toggle -->
+            <div class="flex items-center justify-between">
+              <span class="text-sm text-ink-secondary">Грузим</span>
+              <button @click="toggleActive(selected)"
+                      :class="selected.is_active ? 'bg-green-600 hover:bg-green-500' : 'bg-surface-2 hover:bg-surface-3'"
+                      class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors">
+                <span :class="selected.is_active ? 'translate-x-6' : 'translate-x-1'"
+                      class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform"></span>
+              </button>
+            </div>
+
+            <!-- Barcode button -->
+            <button @click="downloadBarcode(selected)"
+                    class="w-full flex items-center justify-center gap-2 px-4 py-2 bg-surface-2 hover:bg-surface-3 text-ink-secondary hover:text-ink-primary text-sm rounded-lg transition-colors">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 3.5V16m-12 0v.5m0-.5H4m16 0h.5m-.5 0v3.5M4 19.5V16"/>
+              </svg>
+              Распечатать штрихкод
+            </button>
+
+            <!-- Comment field -->
+            <div>
+              <label class="text-xs text-ink-muted block mb-1">Комментарий</label>
+              <textarea x-model="selected.comment" @change="saveComment(selected)"
+                        rows="2" placeholder="Заметки по товару..."
+                        class="w-full px-3 py-2 text-sm bg-surface-2 border border-surface-2 rounded-lg text-ink-primary placeholder-ink-muted focus:outline-none focus:border-blue-500 resize-none"></textarea>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
+
+  </div><!-- end main area -->
+
+</div><!-- end fboApp -->
+
+<script>
+function fboApp() {
+  return {
+    skus: [],
+    filtered: [],
+    paged: [],
+    selected: null,
+    loading: true,
+    syncing: false,
+    stats: {},
+    syncSteps: [],
+    freshness: { summary_date: null, stock_date: null, turnover_at: null, summary_fresh: false, turnover_fresh: false },
+    searchQuery: '',
+    onlyWithRec: false,
+    onlyActive: false,
+    activeStatuses: [],
+    sortField: 'total_recommendation',
+    sortDir: -1,
+    page: 1,
+    pageSize: 50,
+    abcPeriod: 30,
+    abcQtyMap: {},
+    abcRevFilter: [],
+    abcQtyFilter: [],
+    disabledForSku: {},   // { clusterName: true } — локальные переключения в текущей карточке
+    statusFilters: [
+      { value: 'ДЕФИЦИТ', label: 'Дефицит', activeClass: 'bg-red-500/20 text-red-400' },
+      { value: 'РИСК',    label: 'Риск',    activeClass: 'bg-yellow-500/20 text-yellow-400' },
+      { value: 'НОРМА',   label: 'Норма',   activeClass: 'bg-green-500/20 text-green-400' },
+      { value: 'ИЗБЫТОК', label: 'Избыток', activeClass: 'bg-blue-500/20 text-blue-400' },
+    ],
+
+    async init() {
+      await this.loadData();
+      await this.loadSyncStatus();
+    },
+
+    async loadSyncStatus() {
+      try {
+        const r = await fetch('/api/fbo/sync/last-status').then(r => r.json());
+        this.syncSteps = r.steps || [];
+      } catch(e) { this.syncSteps = []; }
+    },
+
+    stepLabel(name) {
+      return ({
+        stocks_refresh:    'Остатки',
+        cluster_map:       'Кластеры',
+        stock_by_cluster:  'Сток×кластер',
+        sales_by_cluster:  'Продажи×кластер',
+        turnover:          'Оборачиваемость',
+        compute:           'Расчёт',
+      })[name] || name;
+    },
+
+    stepDotClass(status) {
+      if (status === 'ok')      return 'bg-emerald-400';
+      if (status === 'error')   return 'bg-red-400';
+      if (status === 'running') return 'bg-blue-400 animate-pulse';
+      return 'bg-surface-3';
+    },
+
+    _todayIso() {
+      const d = new Date();
+      return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    },
+
+    _computeFreshness(raw) {
+      const today = this._todayIso();
+      const turnoverDate = (raw.turnover_at || '').slice(0, 10);
+      return {
+        summary_date:   raw.summary_date,
+        stock_date:     raw.stock_date,
+        turnover_at:    raw.turnover_at,
+        summary_fresh:  !!raw.summary_date && raw.summary_date >= today,
+        turnover_fresh: !!turnoverDate    && turnoverDate    >= today,
+      };
+    },
+
+    async loadData() {
+      this.loading = true;
+      try {
+        const [skuResp, statsResp] = await Promise.all([
+          fetch('/api/fbo/skus').then(r => r.json()),
+          fetch('/api/fbo/stats').then(r => r.json()),
+        ]);
+        this.skus = (skuResp.skus || []).map(s => ({
+          ...s,
+          price_per_unit: s.qty_30d > 0 ? s.revenue_30d / s.qty_30d : 0,
+        }));
+        this.stats = statsResp;
+        this.freshness = this._computeFreshness(statsResp.freshness || {});
+        this.computeABCQty(this.abcPeriod);
+        this.applyFilters();
+      } catch(e) {
+        console.error('FBO load error', e);
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    applyFilters() {
+      let result = [...this.skus];
+      if (this.searchQuery) {
+        const q = this.searchQuery.toLowerCase();
+        result = result.filter(s =>
+          (s.offer_id||'').toLowerCase().includes(q) ||
+          (s.name||'').toLowerCase().includes(q) ||
+          (s.sku||'').includes(q)
+        );
+      }
+      if (this.onlyWithRec) {
+        result = result.filter(s => (s.total_recommendation||0) > 0);
+      }
+      if (this.onlyActive) {
+        result = result.filter(s => s.is_active);
+      }
+      if (this.activeStatuses.length > 0) {
+        result = result.filter(s => this.activeStatuses.includes(s.status));
+      }
+      if (this.abcRevFilter.length > 0) {
+        result = result.filter(s => this.abcRevFilter.includes(s.abc_revenue));
+      }
+      if (this.abcQtyFilter.length > 0) {
+        result = result.filter(s => this.abcQtyFilter.includes(this.abcQtyMap[s.sku] || s.abc_qty));
+      }
+      // Sort
+      result.sort((a, b) => {
+        let av = a[this.sortField];
+        let bv = b[this.sortField];
+        // Пустые значения всегда уезжают вниз
+        const aEmpty = av == null || av === '';
+        const bEmpty = bv == null || bv === '';
+        if (aEmpty && bEmpty) return 0;
+        if (aEmpty) return 1;
+        if (bEmpty) return -1;
+        if (typeof av === 'string' || typeof bv === 'string') {
+          return String(av).localeCompare(String(bv), 'ru') * this.sortDir;
+        }
+        if (typeof av === 'boolean') av = av ? 1 : 0;
+        if (typeof bv === 'boolean') bv = bv ? 1 : 0;
+        return (av > bv ? 1 : av < bv ? -1 : 0) * this.sortDir;
+      });
+      this.filtered = result;
+      this.page = 1;
+      this.updatePage();
+    },
+
+    updatePage() {
+      const start = (this.page - 1) * this.pageSize;
+      this.paged = this.filtered.slice(start, start + this.pageSize);
+    },
+
+    get totalPages() { return Math.ceil(this.filtered.length / this.pageSize) || 1; },
+
+    get pageRange() {
+      const total = this.totalPages;
+      const cur = this.page;
+      const range = [];
+      for (let p = Math.max(1, cur-2); p <= Math.min(total, cur+2); p++) range.push(p);
+      return range;
+    },
+
+    sortBy(field) {
+      if (this.sortField === field) this.sortDir *= -1;
+      else { this.sortField = field; this.sortDir = -1; }
+      this.applyFilters();
+    },
+
+    toggleStatus(val) {
+      if (this.activeStatuses.includes(val))
+        this.activeStatuses = this.activeStatuses.filter(s => s !== val);
+      else
+        this.activeStatuses = [...this.activeStatuses, val];
+      this.applyFilters();
+    },
+
+    async openDetail(row) {
+      if (this.selected?.sku === row.sku) { this.selected = null; return; }
+      this.disabledForSku = {};   // сбрасываем локальные переключения при смене товара
+      try {
+        const data = await fetch(`/api/fbo/sku/${row.sku}`).then(r => r.json());
+        this.selected = data;
+      } catch(e) {
+        this.selected = row;
+      }
+    },
+
+    async toggleActive(row) {
+      const newVal = row.is_active ? 0 : 1;
+      row.is_active = newVal;
+      if (this.selected?.sku === row.sku) this.selected.is_active = newVal;
+      await fetch(`/api/fbo/sku/${row.sku}/settings`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ is_active: newVal }),
+      });
+    },
+
+    async saveComment(row) {
+      await fetch(`/api/fbo/sku/${row.sku}/settings`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ comment: row.comment }),
+      });
+    },
+
+    downloadBarcode(row) {
+      const offer = row.offer_id || row.sku;
+      window.open(`/api/fbo/barcode/${encodeURIComponent(offer)}`, '_blank');
+    },
+
+    async runSync() {
+      if (this.syncing) return;
+      this.syncing = true;
+      try {
+        await fetch('/api/fbo/sync', { method: 'POST' });
+        const poll = setInterval(async () => {
+          const s = await fetch('/api/fbo/sync/status').then(r => r.json());
+          await this.loadSyncStatus();   // обновляем плашку шагов на каждом тике
+          if (!s.running) {
+            clearInterval(poll);
+            this.syncing = false;
+            await this.loadData();
+          }
+        }, 3000);
+      } catch(e) {
+        this.syncing = false;
+      }
+    },
+
+    // ── Cluster proximity map (mirrors Python _CLUSTER_NEAREST) ─────────────
+    clusterNearest: {
+      "Москва, МО и Дальние регионы": ["Тверь","Ярославль","Воронеж"],
+      "Тверь":          ["Москва, МО и Дальние регионы","СПБ (СЗО)","Ярославль"],
+      "Ярославль":      ["Москва, МО и Дальние регионы","Тверь","Воронеж"],
+      "Воронеж":        ["Москва, МО и Дальние регионы","Саратов","Ростов"],
+      "СПБ (СЗО)":      ["Тверь","Москва, МО и Дальние регионы","Калининград"],
+      "Калининград":    ["СПБ (СЗО)","Беларусь","Тверь"],
+      "Казань":         ["Уфа","Самара","Ярославль"],
+      "Самара":         ["Саратов","Казань","Оренбург"],
+      "Саратов":        ["Самара","Воронеж","Казань"],
+      "Уфа":            ["Казань","Оренбург","Пермь"],
+      "Оренбург":       ["Уфа","Самара","Екатеринбург"],
+      "Пермь":          ["Уфа","Екатеринбург","Казань"],
+      "Екатеринбург":   ["Пермь","Тюмень","Уфа"],
+      "Тюмень":         ["Екатеринбург","Омск","Пермь"],
+      "Омск":           ["Тюмень","Новосибирск","Екатеринбург"],
+      "Новосибирск":    ["Омск","Красноярск","Тюмень"],
+      "Красноярск":     ["Новосибирск","Дальний Восток","Омск"],
+      "Дальний Восток": ["Красноярск","Новосибирск","Омск"],
+      "Ростов":         ["Краснодар","Воронеж","Невинномысск"],
+      "Краснодар":      ["Ростов","Кубань","Невинномысск"],
+      "Кубань":         ["Краснодар","Ростов","Невинномысск"],
+      "Невинномысск":   ["Краснодар","Ростов","Махачкала"],
+      "Махачкала":      ["Невинномысск","Астана","Ростов"],
+      "Беларусь":       ["СПБ (СЗО)","Тверь","Москва, МО и Дальние регионы"],
+      "Астана":         ["Омск","Екатеринбург","Новосибирск"],
+      "Алматы":         ["Астана","Новосибирск","Омск"],
+      "Кыргызстан":     ["Алматы","Астана","Новосибирск"],
+      "Узбекистан":     ["Алматы","Астана","Оренбург"],
+      "Армения":        ["Грузия","Невинномысск","Махачкала"],
+      "Грузия":         ["Армения","Невинномысск","Краснодар"],
+    },
+
+    get effectiveClusters() {
+      const raw = this.selected?.clusters || [];
+      if (!raw.length) return [];
+      const off = this.disabledForSku;
+
+      // Build working map: start with server clusters (already have server-side redistribution)
+      const activeMap = {};
+      for (const c of raw) {
+        if (!off[c.cluster_name]) {
+          activeMap[c.cluster_name] = {
+            ...c,
+            merged_from: [...(c.merged_from || [])],
+            _orig_rec: c.recommendation,
+            _off: false,
+            _redirect_to: null,
+          };
+        }
+      }
+      const allActiveNames = Object.keys(activeMap);
+
+      // Clusters with demand > 0 — prefer these as redistribution targets
+      const activeWithDemand = allActiveNames.filter(n => (activeMap[n].recommendation || 0) > 0);
+
+      // Redistribute locally disabled clusters
+      const result = [];
+      for (const c of raw) {
+        if (!off[c.cluster_name]) continue;
+        const rec = c.recommendation || 0;
+        const nearest = this.findNearestActiveLocal(c.cluster_name, activeWithDemand, allActiveNames);
+        if (rec > 0 && nearest && activeMap[nearest]) {
+          activeMap[nearest].recommendation = (activeMap[nearest].recommendation || 0) + rec;
+          if (!activeWithDemand.includes(nearest)) activeWithDemand.push(nearest);
+          activeMap[nearest].merged_from.push({ cluster: c.cluster_name, units: rec, local: true });
+        }
+        result.push({ ...c, _orig_rec: rec, _off: true, _redirect_to: nearest });
+      }
+
+      // Active clusters sorted by recommendation desc, then disabled at bottom
+      const active = Object.values(activeMap).sort((a, b) => (b.recommendation||0) - (a.recommendation||0));
+      return [...active, ...result];
+    },
+
+    // Find nearest cluster: first looks for neighbors WITH demand, then any active neighbor
+    findNearestActiveLocal(cluster, preferredNames, fallbackNames) {
+      const neighbors = this.clusterNearest[cluster] || [];
+      for (const n of neighbors) {
+        if (preferredNames.includes(n)) return n;
+      }
+      if (preferredNames.length > 0) return preferredNames[0];
+      for (const n of neighbors) {
+        if (fallbackNames.includes(n)) return n;
+      }
+      return fallbackNames[0] || null;
+    },
+
+    toggleClusterForSku(clusterName) {
+      this.disabledForSku = { ...this.disabledForSku, [clusterName]: !this.disabledForSku[clusterName] };
+    },
+
+    printDetail() {
+      if (!this.selected) return;
+      const s = this.selected;
+      const clusters = this.effectiveClusters;
+      const activeClusters = clusters.filter(c => !c._off && (c.recommendation || 0) > 0);
+      const skippedClusters = clusters.filter(c => c._off && (c._orig_rec || 0) > 0);
+      const totalRec = activeClusters.reduce((sum, c) => sum + (c.recommendation || 0), 0);
+      const today = new Date().toLocaleDateString('ru-RU', {day:'2-digit', month:'2-digit', year:'numeric'});
+      const fmtN = n => n != null ? Number(n).toLocaleString('ru-RU') : '—';
+      const fmtMoney = n => n ? Math.round(n).toLocaleString('ru-RU') + ' ₽' : '—';
+      const statusColor = {'ДЕФИЦИТ':'#ef4444','РИСК':'#f59e0b','НОРМА':'#10b981','ИЗБЫТОК':'#6b7280'}[s.status] || '#6b7280';
+      const abcColor = l => ({'A':'#10b981','B':'#f59e0b','C':'#ef4444'}[l] || '#6b7280');
+      const trend = s.qty_10d && s.qty_30d
+        ? ((s.qty_10d/10) > (s.qty_30d/30)
+            ? '<span style="color:#10b981">↑ растёт</span>'
+            : '<span style="color:#ef4444">↓ падает</span>')
+        : '—';
+
+      const clusterRows = activeClusters.map(c => {
+        const mergedNote = c.merged_from && c.merged_from.length
+          ? `<span style="color:#888;font-size:10px;display:block;margin-top:2px">${c.merged_from.map(m => `← ${m.cluster}: +${m.units} шт`).join(', ')}</span>`
+          : '';
+        return `<tr>
+          <td style="padding:7px 10px;border-bottom:1px solid #eee">${c.cluster_name}${mergedNote}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #eee;text-align:right">${fmtN(c.fact_stock)} шт</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #eee;text-align:right">${fmtN(c.qty_28d)} шт</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #eee;text-align:right;font-weight:bold;color:#1a56db;font-size:14px">+${fmtN(c.recommendation)} шт</td>
+        </tr>`;
+      }).join('');
+
+      const skippedNote = skippedClusters.length
+        ? `<div style="margin-top:14px;padding:9px 13px;background:#fff8e1;border-left:3px solid #f59e0b;font-size:11px;color:#555">
+            <strong>Исключено из этой отгрузки:</strong><br>
+            ${skippedClusters.map(c => `${c.cluster_name} (${c._orig_rec} шт) → ${c._redirect_to || '—'}`).join(' &nbsp;·&nbsp; ')}
+          </div>`
+        : '';
+
+      const html = `<!DOCTYPE html>
+<html><head>
+  <meta charset="UTF-8">
+  <title>Отгрузка — ${s.offer_id || s.sku}</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:Arial,sans-serif;color:#111;font-size:12px;padding:10mm 14mm}
+    .hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;gap:12px}
+    .title{font-size:16px;font-weight:bold;line-height:1.3}
+    .meta{color:#555;font-size:11px;margin-top:5px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+    .badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:bold;color:#fff}
+    .logo{font-size:10px;color:#aaa;text-align:right;flex-shrink:0}
+    .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:13px 0}
+    .kpi{border:1px solid #e5e7eb;border-radius:7px;padding:9px 11px;text-align:center}
+    .kpi .val{font-size:20px;font-weight:bold}
+    .kpi .lbl{font-size:10px;color:#777;margin-top:3px}
+    .kpi.hi{border-color:#1a56db;background:#eff6ff}
+    .kpi.hi .val{color:#1a56db}
+    .sec{font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:.05em;color:#888;margin:13px 0 5px}
+    table{width:100%;border-collapse:collapse}
+    thead th{background:#f5f5f5;padding:6px 10px;font-size:11px;border-bottom:2px solid #ddd;text-align:left}
+    thead th:nth-child(2),thead th:nth-child(3),thead th:nth-child(4){text-align:right}
+    .tr{background:#eff6ff;font-weight:bold}
+    .tr td{padding:7px 10px}
+    .tri{color:#1a56db;font-size:14px;text-align:right}
+    .sales{display:flex;gap:18px;margin-top:8px}
+    .si .sv{font-size:15px;font-weight:bold}
+    .si .sl{font-size:10px;color:#888;margin-top:2px}
+    .ft{margin-top:18px;padding-top:7px;border-top:1px solid #e5e7eb;font-size:10px;color:#aaa;display:flex;justify-content:space-between}
+    @page{size:A4;margin:0}
+    @media print{body{padding:8mm 12mm}}
+  </style>
+</head><body>
+  <div class="hdr">
+    <div>
+      <div class="title">${s.name || '—'}</div>
+      <div class="meta">
+        <span>Артикул: <strong>${s.offer_id || s.sku}</strong></span>
+        <span class="badge" style="background:${statusColor}">${s.status || '—'}</span>
+        <span>ABC: <strong style="color:${abcColor(s.abc_revenue)}">${s.abc_revenue||'?'}</strong> / <strong style="color:${abcColor(s.abc_qty)}">${s.abc_qty||'?'}</strong></span>
+        <span>Выручка 30д: <strong>${fmtMoney(s.revenue_30d)}</strong></span>
+      </div>
+    </div>
+    <div class="logo"><strong>Торговод</strong><br>Лист отгрузки FBO<br>${today}</div>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="val">${fmtN(s.fact_stock)}</div><div class="lbl">На складах FBO, шт</div></div>
+    <div class="kpi"><div class="val">${fmtN(s.in_transit||0)}</div><div class="lbl">В пути на Ozon, шт</div></div>
+    <div class="kpi"><div class="val">${s.days_to_zero!=null?s.days_to_zero.toFixed(1):'∞'}</div><div class="lbl">Дней покрытия</div></div>
+    <div class="kpi hi"><div class="val">${fmtN(totalRec)}</div><div class="lbl">К отгрузке итого, шт</div></div>
+  </div>
+
+  <div class="sec">Куда грузить</div>
+  <table>
+    <thead><tr>
+      <th>Кластер Ozon</th>
+      <th style="text-align:right">На складе</th>
+      <th style="text-align:right">Продажи 28д</th>
+      <th style="text-align:right">К отгрузке</th>
+    </tr></thead>
+    <tbody>
+      ${clusterRows}
+      <tr class="tr"><td colspan="3">Итого</td><td class="tri">${fmtN(totalRec)} шт</td></tr>
+    </tbody>
+  </table>
+
+  ${skippedNote}
+
+  <div class="sec" style="margin-top:16px">Продажи</div>
+  <div class="sales">
+    <div class="si"><div class="sv">${fmtN(s.qty_10d)}</div><div class="sl">10 дней${s.qty_10d?'<br>'+(s.qty_10d/10).toFixed(1)+' шт/д':''}</div></div>
+    <div class="si"><div class="sv">${fmtN(s.qty_28d)}</div><div class="sl">28 дней${s.qty_28d?'<br>'+(s.qty_28d/28).toFixed(1)+' шт/д':''}</div></div>
+    <div class="si"><div class="sv">${fmtN(s.qty_30d)}</div><div class="sl">30 дней${s.qty_30d?'<br>'+(s.qty_30d/30).toFixed(1)+' шт/д':''}</div></div>
+    <div class="si" style="margin-left:16px"><div class="sv" style="font-size:13px">${trend}</div><div class="sl">Тренд</div></div>
+  </div>
+
+  <div class="ft"><span>Торговод · Лист отгрузки FBO</span><span>${today}</span></div>
+  <script>window.onload=function(){window.print()}<\/script>
+</body></html>`;
+
+      const w = window.open('', '_blank', 'width=860,height=680');
+      w.document.write(html);
+      w.document.close();
+      w.focus();
+    },
+
+    computeABCQty(period) {
+      const field = period === 10 ? 'qty_10d' : period === 28 ? 'qty_28d' : 'qty_30d';
+      const total = this.skus.reduce((s, r) => s + (r[field] || 0), 0);
+      if (!total) { this.abcQtyMap = {}; return; }
+      const sorted = [...this.skus].sort((a, b) => (b[field] || 0) - (a[field] || 0));
+      const map = {};
+      let cum = 0;
+      for (const r of sorted) {
+        cum += r[field] || 0;
+        const share = cum / total;
+        map[r.sku] = share <= 0.8 ? 'A' : share <= 0.95 ? 'B' : 'C';
+      }
+      this.abcQtyMap = map;
+    },
+
+    setAbcPeriod(p) {
+      this.abcPeriod = p;
+      this.computeABCQty(p);
+    },
+
+    toggleAbcRev(letter) {
+      if (this.abcRevFilter.includes(letter))
+        this.abcRevFilter = this.abcRevFilter.filter(l => l !== letter);
+      else
+        this.abcRevFilter = [...this.abcRevFilter, letter];
+      this.applyFilters();
+    },
+
+    toggleAbcQty(letter) {
+      if (this.abcQtyFilter.includes(letter))
+        this.abcQtyFilter = this.abcQtyFilter.filter(l => l !== letter);
+      else
+        this.abcQtyFilter = [...this.abcQtyFilter, letter];
+      this.applyFilters();
+    },
+
+    abcFilterClass(letter) {
+      return { 'A': 'bg-green-500/25 text-green-400', 'B': 'bg-yellow-500/25 text-yellow-400', 'C': 'bg-surface-3 text-ink-secondary' }[letter] || '';
+    },
+
+    // ── Helpers ──────────────────────────────────────────────────────────
+    fmt(n) { return n != null ? n.toLocaleString('ru') : '0'; },
+    fmtM(v) {
+      if (!v) return '—';
+      if (v >= 1_000_000) return (v / 1_000_000).toFixed(1) + ' млн ₽';
+      if (v >= 1_000)     return Math.round(v / 1_000) + ' тыс ₽';
+      return v + ' ₽';
+    },
+
+    abcColor(abc) {
+      return { 'A': 'text-green-400', 'B': 'text-yellow-400', 'C': 'text-ink-muted' }[abc] || 'text-ink-muted';
+    },
+
+    daysColor(days) {
+      if (days == null) return 'text-ink-muted';
+      if (days < 7) return 'text-red-400 font-bold';
+      if (days < 14) return 'text-yellow-400 font-bold';
+      if (days > 90) return 'text-blue-400';
+      return 'text-ink-primary';
+    },
+
+    gradeColor(grade) {
+      if (!grade) return 'text-ink-muted';
+      const g = grade.toUpperCase();
+      if (g.includes('GREEN')) return 'text-green-400';
+      if (g.includes('YELLOW')) return 'text-yellow-400';
+      if (g.includes('RED')) return 'text-red-400';
+      return 'text-ink-muted';
+    },
+
+    statusBadge(status) {
+      return {
+        'ДЕФИЦИТ': 'bg-red-500/15 text-red-400',
+        'РИСК':    'bg-yellow-500/15 text-yellow-400',
+        'НОРМА':   'bg-green-500/15 text-green-400',
+        'ИЗБЫТОК': 'bg-blue-500/15 text-blue-400',
+      }[status] || 'bg-surface-2 text-ink-muted';
+    },
+  };
+}
+</script>
+{% endblock %}

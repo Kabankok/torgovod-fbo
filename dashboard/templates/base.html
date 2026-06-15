@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Торговод{% endblock %} — Торговод · FBO</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230f172a'/%3E%3Ctext x='16' y='22' font-family='Arial Black,Arial,sans-serif' font-size='18' font-weight='900' text-anchor='middle' fill='%233b82f6'%3ET%3C/text%3E%3Ccircle cx='23' cy='9' r='4' fill='%2360a5fa'/%3E%3C/svg%3E">
+
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui'] },
+        extend: {
+          colors: {
+            surface: { 0: '#0d1117', 1: '#161b22', 2: '#21262d', 3: '#1c2128' },
+            ink: { primary: '#e6edf3', secondary: '#8b949e', muted: '#6e7681' },
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+
+  <!-- Alpine.js -->
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <style>[x-cloak]{display:none!important}</style>
+
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body class="bg-surface-0 text-ink-primary font-sans flex flex-col min-h-screen">
+
+  {% set _path = request.url.path if request else '' %}
+
+  <div class="flex flex-1 overflow-hidden">
+
+    <!-- Sidebar -->
+    <aside class="w-56 bg-surface-1 border-r border-surface-2 flex-shrink-0 flex flex-col">
+      <div class="px-5 py-5 border-b border-surface-2">
+        <div class="text-base font-bold tracking-tight"><span class="text-white">Торго</span><span class="text-blue-400">вод</span></div>
+        <div class="text-xs text-ink-muted mt-0.5 font-medium">Отгрузки FBO · Ozon</div>
+      </div>
+
+      <nav class="flex-1 px-3 py-4 flex flex-col gap-0.5 overflow-y-auto">
+
+        {% macro navlink(href, label, is_active) %}
+        <a href="{{ href }}"
+           class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors
+                  {% if is_active %}nav-active bg-surface-3 text-white{% else %}text-ink-secondary hover:bg-surface-3 hover:text-ink-primary{% endif %}">
+          {{ caller() }}
+          {{ label }}
+        </a>
+        {% endmacro %}
+
+        <div class="mb-1 px-3">
+          <span class="text-[10px] font-semibold tracking-widest uppercase text-ink-muted">Отгрузки FBO</span>
+        </div>
+
+        {% call navlink('/fbo', 'Что грузить', _path == '/fbo') %}
+        <svg class="w-4 h-4 flex-shrink-0 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+        {% endcall %}
+
+        {% call navlink('/fbo/clusters', 'Кластеры', _path == '/fbo/clusters') %}
+        <svg class="w-4 h-4 flex-shrink-0 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/></svg>
+        {% endcall %}
+
+        {% call navlink('/fbo/orders', 'Заявки на поставку', _path == '/fbo/orders') %}
+        <svg class="w-4 h-4 flex-shrink-0 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+        {% endcall %}
+
+        {% call navlink('/fbo/slot-hunter', 'Слот-хантер', _path == '/fbo/slot-hunter') %}
+        <svg class="w-4 h-4 flex-shrink-0 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        {% endcall %}
+
+        <div class="mt-auto pt-4 border-t border-surface-2">
+          {% call navlink('/settings', 'Настройки', _path == '/settings') %}
+          <svg class="w-4 h-4 flex-shrink-0 text-ink-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+          {% endcall %}
+        </div>
+
+      </nav>
+    </aside>
+
+    <!-- Main -->
+    <main class="flex-1 overflow-hidden">
+      {% block content %}{% endblock %}
+    </main>
+
+  </div>
+
+</body>
+</html>

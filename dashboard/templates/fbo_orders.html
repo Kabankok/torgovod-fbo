@@ -1,0 +1,1214 @@
+{% extends "base.html" %}
+{% block title %}FBO: Заявки{% endblock %}
+
+{% block content %}
+<div x-data="fboOrdersApp()" x-init="init()" class="flex flex-col h-full overflow-hidden">
+
+  <!-- ── Header ─────────────────────────────────────────────────────────── -->
+  <div class="flex items-center justify-between px-6 py-4 border-b border-surface-2 flex-shrink-0">
+    <div class="flex items-center gap-3">
+      <a href="/fbo" class="text-ink-muted hover:text-ink-primary transition-colors">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+        </svg>
+      </a>
+      <div>
+        <h1 class="text-lg font-semibold text-ink-primary">FBO: Заявки на поставку</h1>
+        <p class="text-xs text-ink-muted mt-0.5">Список поставок, статусы, слот-хантер</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-2">
+      <button @click="openWizard()"
+              class="flex items-center gap-2 px-4 py-2 bg-surface-2 hover:bg-surface-3 text-ink-secondary hover:text-ink-primary text-sm font-medium rounded-lg transition-colors">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+        </svg>
+        Создать заявку
+      </button>
+      <button @click="syncOrders()" :disabled="syncing"
+              class="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors">
+        <svg class="w-4 h-4" :class="syncing ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+        </svg>
+        <span x-text="syncing ? 'Загрузка...' : 'Обновить из Ozon'"></span>
+      </button>
+    </div>
+  </div>
+
+  <!-- ── KPI Strip ──────────────────────────────────────────────────────── -->
+  <div class="flex gap-3 px-6 py-3 border-b border-surface-2 flex-shrink-0">
+    <div class="flex items-center gap-2.5 px-3.5 py-2 bg-surface-2 rounded-lg">
+      <span class="w-2 h-2 rounded-full bg-blue-400"></span>
+      <span class="text-xs text-ink-muted">Активных</span>
+      <span class="text-sm font-semibold text-blue-400" x-text="stats.active || 0"></span>
+    </div>
+    <div class="flex items-center gap-2.5 px-3.5 py-2 bg-surface-2 rounded-lg">
+      <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
+      <span class="text-xs text-ink-muted">В пути</span>
+      <span class="text-sm font-semibold text-cyan-400" x-text="stats.transit || 0"></span>
+    </div>
+    <div class="flex items-center gap-2.5 px-3.5 py-2 bg-surface-2 rounded-lg">
+      <span class="w-2 h-2 rounded-full bg-yellow-400"></span>
+      <span class="text-xs text-ink-muted">На приёмке</span>
+      <span class="text-sm font-semibold text-yellow-400" x-text="stats.acceptance || 0"></span>
+    </div>
+    <div class="flex items-center gap-2.5 px-3.5 py-2 bg-surface-2 rounded-lg">
+      <span class="w-2 h-2 rounded-full bg-green-400"></span>
+      <span class="text-xs text-ink-muted">Завершено</span>
+      <span class="text-sm font-semibold text-green-400" x-text="stats.done || 0"></span>
+    </div>
+    <div class="flex-1"></div>
+    <div x-show="lastSync" class="flex items-center gap-1.5 text-xs text-ink-muted">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+      </svg>
+      <span x-text="'Обновлено: ' + lastSync"></span>
+    </div>
+  </div>
+
+  <!-- ── Filters ────────────────────────────────────────────────────────── -->
+  <div class="flex items-center gap-3 px-6 py-3 border-b border-surface-2 flex-shrink-0 flex-wrap">
+    <div class="relative">
+      <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+      </svg>
+      <input x-model="search" type="text" placeholder="Поиск по номеру..."
+             class="pl-8 pr-3 py-2 text-sm bg-surface-2 border border-surface-2 rounded-lg text-ink-primary placeholder-ink-muted focus:outline-none focus:border-blue-500 w-52"/>
+    </div>
+    <div class="flex gap-1 bg-surface-2 rounded-lg p-1">
+      <template x-for="tab in tabs" :key="tab.key">
+        <button @click="activeTab = tab.key"
+                :class="activeTab === tab.key ? 'bg-surface-3 text-ink-primary' : 'text-ink-muted hover:text-ink-secondary'"
+                class="px-3 py-1.5 rounded text-xs font-medium transition-colors" x-text="tab.label"></button>
+      </template>
+    </div>
+    <span class="text-xs text-ink-muted ml-auto" x-text="filteredOrders.length + ' заявок'"></span>
+  </div>
+
+  <!-- ── Table + Detail Panel ───────────────────────────────────────────── -->
+  <div class="flex flex-1 overflow-hidden">
+
+    <!-- Table -->
+    <div class="flex-1 overflow-y-auto" :class="selectedOrder ? 'border-r border-surface-2' : ''">
+
+      <!-- Loading -->
+      <div x-show="loading" class="flex items-center justify-center h-32">
+        <div class="text-ink-muted text-sm flex items-center gap-2">
+          <svg class="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+          Загрузка заявок...
+        </div>
+      </div>
+
+      <!-- Error -->
+      <div x-show="!loading && error" class="px-6 py-8 text-center">
+        <div class="text-red-400 text-sm mb-2" x-text="error"></div>
+        <button @click="loadOrders(true)" class="text-xs text-blue-400 hover:text-blue-300">Загрузить из Ozon →</button>
+      </div>
+
+      <!-- Empty -->
+      <div x-show="!loading && !error && filteredOrders.length === 0" class="px-6 py-16 text-center">
+        <div class="text-ink-muted text-sm mb-3">Заявок нет</div>
+        <button @click="syncOrders()" class="text-xs text-blue-400 hover:text-blue-300">Загрузить из Ozon →</button>
+      </div>
+
+      <!-- Таблица -->
+      <table x-show="!loading && filteredOrders.length > 0" class="w-full">
+        <thead class="sticky top-0 bg-surface-1 z-10">
+          <tr class="border-b border-surface-2">
+            <th class="text-left px-6 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">Заявка</th>
+            <th class="text-left px-4 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">Статус</th>
+            <th class="text-left px-4 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">Кластер / Склад</th>
+            <th class="text-left px-4 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">Слот отгрузки</th>
+            <th class="px-4 py-3"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="order in filteredOrders" :key="order.supply_order_id">
+            <tr @click="selectOrder(order)"
+                :class="selectedOrder?.supply_order_id === order.supply_order_id
+                        ? 'bg-blue-500/5 border-l-2 border-blue-500'
+                        : 'hover:bg-surface-1 border-l-2 border-transparent'"
+                class="border-b border-surface-2 cursor-pointer transition-colors">
+              <td class="px-6 py-3.5">
+                <div class="text-sm font-medium text-ink-primary" x-text="order.order_number || ('#' + order.supply_order_id)"></div>
+                <div class="text-xs text-ink-muted mt-0.5" x-text="'ID: ' + order.supply_order_id"></div>
+              </td>
+              <td class="px-4 py-3.5">
+                <span :class="statusBadge(order.state).cls"
+                      class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium">
+                  <span class="w-1.5 h-1.5 rounded-full" :class="statusBadge(order.state).dot"></span>
+                  <span x-text="statusBadge(order.state).label"></span>
+                </span>
+              </td>
+              <td class="px-4 py-3.5 text-sm text-ink-secondary" x-text="order.cluster || '—'"></td>
+              <td class="px-4 py-3.5">
+                <template x-if="order.timeslot_from">
+                  <div class="text-sm text-ink-primary" x-text="fmtSlot(order.timeslot_from, order.timeslot_to)"></div>
+                </template>
+                <template x-if="!order.timeslot_from">
+                  <div class="flex items-center gap-1.5">
+                    <span class="text-xs text-ink-muted">—</span>
+                    <template x-if="order.state === 'READY_TO_SUPPLY'">
+                      <span class="px-1.5 py-0.5 bg-orange-500/15 text-orange-400 rounded text-[10px]">Нужен слот</span>
+                    </template>
+                  </div>
+                </template>
+              </td>
+              <td class="px-4 py-3.5 text-right">
+                <div class="relative" @click.stop>
+                  <button @click="toggleMenu(order.supply_order_id)"
+                          class="p-1.5 rounded-lg hover:bg-surface-2 text-ink-muted hover:text-ink-primary transition-colors">
+                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                      <circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/>
+                    </svg>
+                  </button>
+                  <div x-show="openMenu === order.supply_order_id" @click.outside="openMenu = null"
+                       class="absolute right-0 top-8 w-52 bg-surface-2 border border-surface-3 rounded-lg shadow-xl z-20 py-1 text-sm">
+                    <button @click="selectOrder(order); openMenu = null"
+                            class="w-full text-left px-3 py-2 hover:bg-surface-3 text-ink-secondary hover:text-ink-primary transition-colors flex items-center gap-2">
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                      </svg>
+                      Открыть детали
+                    </button>
+                    <template x-if="order.state === 'READY_TO_SUPPLY'">
+                      <div>
+                        <button @click="selectOrder(order); slotPicker.open = true; loadSlots(order.supply_order_id); openMenu = null"
+                                class="w-full text-left px-3 py-2 hover:bg-surface-3 text-ink-secondary hover:text-ink-primary transition-colors flex items-center gap-2">
+                          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                          </svg>
+                          Выбрать слот
+                        </button>
+                        <button @click="openHunterFor(order); openMenu = null"
+                                class="w-full text-left px-3 py-2 hover:bg-surface-3 text-ink-secondary hover:text-ink-primary transition-colors flex items-center gap-2">
+                          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                          </svg>
+                          Слот-хантер (авто)
+                        </button>
+                      </div>
+                    </template>
+                    <button @click="copyId(order.order_number || order.supply_order_id); openMenu = null"
+                            class="w-full text-left px-3 py-2 hover:bg-surface-3 text-ink-secondary hover:text-ink-primary transition-colors flex items-center gap-2">
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                      </svg>
+                      Скопировать номер
+                    </button>
+                  </div>
+                </div>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ── Detail Panel ────────────────────────────────────────────────── -->
+    <div x-show="selectedOrder"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0 translate-x-4"
+         x-transition:enter-end="opacity-100 translate-x-0"
+         class="w-[420px] flex-shrink-0 bg-surface-1 flex flex-col overflow-hidden">
+      <template x-if="selectedOrder">
+        <div class="flex flex-col h-full overflow-y-auto">
+
+          <!-- Panel header -->
+          <div class="flex items-start justify-between px-5 py-4 border-b border-surface-2 flex-shrink-0">
+            <div>
+              <div class="text-sm font-semibold text-ink-primary"
+                   x-text="selectedOrder.order_number || ('#' + selectedOrder.supply_order_id)"></div>
+              <div class="flex items-center gap-2 mt-1.5">
+                <span :class="statusBadge(selectedOrder.state).cls"
+                      class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium">
+                  <span class="w-1.5 h-1.5 rounded-full" :class="statusBadge(selectedOrder.state).dot"></span>
+                  <span x-text="statusBadge(selectedOrder.state).label"></span>
+                </span>
+                <span class="text-xs text-ink-muted" x-text="selectedOrder.cluster || ''"></span>
+              </div>
+            </div>
+            <button @click="selectedOrder = null; slotPicker.open = false; hunterForm.orderId = null"
+                    class="p-1.5 rounded-lg hover:bg-surface-2 text-ink-muted hover:text-ink-primary transition-colors mt-0.5">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+              </svg>
+            </button>
+          </div>
+
+          <div class="flex-1 px-5 py-4 space-y-4">
+
+            <!-- Slot block -->
+            <div class="bg-surface-2 rounded-xl p-4">
+              <div class="text-xs text-ink-muted font-medium uppercase tracking-wide mb-2">Слот отгрузки</div>
+              <template x-if="selectedOrder.timeslot_from">
+                <div class="text-base font-semibold text-ink-primary"
+                     x-text="fmtSlot(selectedOrder.timeslot_from, selectedOrder.timeslot_to)"></div>
+              </template>
+              <template x-if="!selectedOrder.timeslot_from">
+                <div class="text-sm text-ink-muted">Слот не назначен</div>
+              </template>
+            </div>
+
+            <!-- ── Actions for READY_TO_SUPPLY ── -->
+            <template x-if="selectedOrder.state === 'READY_TO_SUPPLY'">
+              <div class="space-y-2">
+                <!-- Button: выбрать слот вручную -->
+                <button @click="toggleSlotPicker()"
+                        :class="slotPicker.open ? 'bg-blue-600/20 border-blue-600/40 text-blue-300' : 'bg-surface-2 hover:bg-surface-3 border-surface-3 text-ink-secondary hover:text-ink-primary'"
+                        class="w-full flex items-center justify-between px-4 py-2.5 border text-sm font-medium rounded-xl transition-colors">
+                  <div class="flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                    </svg>
+                    Выбрать слот вручную
+                  </div>
+                  <svg class="w-4 h-4 transition-transform" :class="slotPicker.open ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                  </svg>
+                </button>
+
+                <!-- Slot picker panel -->
+                <div x-show="slotPicker.open" class="bg-surface-2 rounded-xl p-4 border border-blue-500/20 space-y-3">
+                  <!-- Loading slots -->
+                  <div x-show="slotPicker.loading" class="flex items-center gap-2 text-xs text-ink-muted py-2">
+                    <svg class="w-3.5 h-3.5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
+                    Загружаю доступные слоты...
+                  </div>
+                  <!-- Error -->
+                  <div x-show="!slotPicker.loading && slotPicker.error" class="text-xs text-red-400" x-text="slotPicker.error"></div>
+                  <!-- No slots -->
+                  <div x-show="!slotPicker.loading && !slotPicker.error && slotPicker.slots.length === 0"
+                       class="text-xs text-ink-muted py-2">Доступных слотов нет</div>
+                  <!-- Slot cards -->
+                  <div x-show="!slotPicker.loading && slotPicker.slots.length > 0">
+                    <div class="text-xs text-ink-muted font-medium mb-2" x-text="'Доступно слотов: ' + slotPicker.slots.length"></div>
+                    <div class="space-y-1.5 max-h-52 overflow-y-auto pr-1">
+                      <template x-for="(slot, idx) in slotPicker.slots" :key="idx">
+                        <button @click="pickSlot(slot)"
+                                :disabled="slotPicker.selecting"
+                                class="w-full flex items-center justify-between px-3 py-2.5 bg-surface-1 hover:bg-blue-500/10 hover:border-blue-500/40 border border-surface-3 rounded-lg transition-colors text-left disabled:opacity-50">
+                          <div>
+                            <div class="text-sm font-medium text-ink-primary" x-text="fmtSlotDate(slot.from)"></div>
+                            <div class="text-xs text-ink-muted mt-0.5" x-text="fmtSlotTime(slot.from, slot.to)"></div>
+                          </div>
+                          <svg class="w-4 h-4 text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                          </svg>
+                        </button>
+                      </template>
+                    </div>
+                  </div>
+                  <!-- Selecting indicator -->
+                  <div x-show="slotPicker.selecting" class="flex items-center gap-2 text-xs text-blue-400">
+                    <svg class="w-3.5 h-3.5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
+                    Устанавливаю слот, подождите (~30 сек)...
+                  </div>
+                  <!-- Success -->
+                  <div x-show="slotPicker.success" class="flex items-center gap-1.5 text-xs text-green-400">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/>
+                    </svg>
+                    Слот установлен!
+                  </div>
+                  <!-- Set error -->
+                  <div x-show="slotPicker.setError" class="text-xs text-red-400" x-text="slotPicker.setError"></div>
+                </div>
+
+                <!-- Button: slot hunter auto -->
+                <button @click="openHunterFor(selectedOrder)"
+                        class="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-surface-2 hover:bg-surface-3 border border-surface-3 text-ink-secondary hover:text-ink-primary text-sm font-medium rounded-xl transition-colors">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                  </svg>
+                  Слот-хантер (авто)
+                </button>
+
+              </div>
+            </template>
+
+            <!-- Delete from local DB (always visible) -->
+            <button @click="deleteOrder(selectedOrder)"
+                    class="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-surface-2 hover:bg-red-500/10 border border-surface-3 hover:border-red-500/30 text-ink-muted hover:text-red-400 text-sm font-medium rounded-xl transition-colors">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+              </svg>
+              Удалить из списка
+            </button>
+
+            <!-- Slot hunter mini-form -->
+            <div x-show="hunterForm.orderId === selectedOrder.supply_order_id"
+                 class="bg-surface-2 rounded-xl p-4 border border-blue-500/20">
+              <div class="text-xs text-ink-muted font-medium uppercase tracking-wide mb-3">Параметры Слот-хантера</div>
+              <div class="grid grid-cols-2 gap-2 mb-3">
+                <div>
+                  <label class="text-xs text-ink-muted block mb-1">Дата от</label>
+                  <input x-model="hunterForm.date_from" type="date"
+                         class="w-full px-2 py-1.5 text-sm bg-surface-1 border border-surface-2 rounded-lg text-ink-primary focus:outline-none focus:border-blue-500"/>
+                </div>
+                <div>
+                  <label class="text-xs text-ink-muted block mb-1">Дата до</label>
+                  <input x-model="hunterForm.date_to" type="date"
+                         class="w-full px-2 py-1.5 text-sm bg-surface-1 border border-surface-2 rounded-lg text-ink-primary focus:outline-none focus:border-blue-500"/>
+                </div>
+                <div>
+                  <label class="text-xs text-ink-muted block mb-1">Время от</label>
+                  <input x-model="hunterForm.time_from" type="time"
+                         class="w-full px-2 py-1.5 text-sm bg-surface-1 border border-surface-2 rounded-lg text-ink-primary focus:outline-none focus:border-blue-500"/>
+                </div>
+                <div>
+                  <label class="text-xs text-ink-muted block mb-1">Время до</label>
+                  <input x-model="hunterForm.time_to" type="time"
+                         class="w-full px-2 py-1.5 text-sm bg-surface-1 border border-surface-2 rounded-lg text-ink-primary focus:outline-none focus:border-blue-500"/>
+                </div>
+              </div>
+              <div class="flex gap-2">
+                <button @click="startHunter()" :disabled="hunterForm.submitting"
+                        class="flex-1 px-3 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
+                        x-text="hunterForm.submitting ? 'Запуск...' : 'Запустить'"></button>
+                <button @click="hunterForm.orderId = null"
+                        class="px-3 py-2 bg-surface-3 text-ink-secondary text-sm rounded-lg transition-colors">Отмена</button>
+              </div>
+              <div x-show="hunterForm.success" class="mt-2 text-xs text-green-400 flex items-center gap-1">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                </svg>
+                Слот-хантер запущен!
+                <a href="/fbo/slot-hunter" class="underline ml-1">Открыть →</a>
+              </div>
+              <div x-show="hunterForm.error" class="mt-2 text-xs text-red-400" x-text="hunterForm.error"></div>
+            </div>
+
+            <!-- History timeline -->
+            <div>
+              <div class="text-xs text-ink-muted font-medium uppercase tracking-wide mb-3">История статусов</div>
+              <template x-if="detailHistory.length === 0">
+                <div class="text-xs text-ink-muted">Нет данных</div>
+              </template>
+              <div class="space-y-0">
+                <template x-for="(step, idx) in buildTimeline(selectedOrder, detailHistory)" :key="step.key + idx">
+                  <div class="flex items-start gap-3">
+                    <div class="flex flex-col items-center">
+                      <div class="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
+                           :class="step.done ? 'bg-blue-500' : step.current ? 'bg-blue-500/30 border-2 border-blue-500' : 'bg-surface-2 border-2 border-surface-3'">
+                        <template x-if="step.done">
+                          <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/>
+                          </svg>
+                        </template>
+                        <template x-if="step.current && !step.done">
+                          <span class="w-2 h-2 rounded-full bg-blue-400 animate-pulse"></span>
+                        </template>
+                      </div>
+                      <template x-if="idx < buildTimeline(selectedOrder, detailHistory).length - 1">
+                        <div class="w-0.5 h-6 mt-1" :class="step.done ? 'bg-blue-500/40' : 'bg-surface-2'"></div>
+                      </template>
+                    </div>
+                    <div class="pb-4">
+                      <div class="text-sm" :class="step.current ? 'text-ink-primary font-medium' : step.done ? 'text-ink-secondary' : 'text-ink-muted'"
+                           x-text="step.label"></div>
+                      <div class="text-xs text-ink-muted mt-0.5" x-text="step.time || '—'"></div>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+</div>
+
+<!-- ── Create Order Wizard Modal ──────────────────────────────────────────── -->
+<div x-data="fboWizardApp()" x-init="initDefaults()" x-show="open" x-cloak
+     @fbo-open-wizard.window="openWizard($event.detail)"
+     class="fixed inset-0 z-50 flex items-center justify-center p-4">
+  <!-- Backdrop -->
+  <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="close()"></div>
+  <!-- Modal -->
+  <div class="relative w-full max-w-2xl bg-surface-1 rounded-2xl shadow-2xl border border-surface-2 flex flex-col max-h-[90vh]">
+
+    <!-- Modal header -->
+    <div class="flex items-center justify-between px-6 py-4 border-b border-surface-2 flex-shrink-0">
+      <div>
+        <h2 class="text-base font-semibold text-ink-primary">Создать заявку на поставку FBO</h2>
+        <div class="flex items-center gap-1.5 mt-1.5">
+          <template x-for="(s, i) in steps" :key="i">
+            <div class="flex items-center gap-1.5">
+              <div class="flex items-center gap-1">
+                <div class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold"
+                     :class="step > i+1 ? 'bg-blue-500 text-white' : step === i+1 ? 'bg-blue-500/20 text-blue-400 border border-blue-500' : 'bg-surface-2 text-ink-muted'">
+                  <template x-if="step > i+1"><span>✓</span></template>
+                  <template x-if="step <= i+1"><span x-text="i+1"></span></template>
+                </div>
+                <span class="text-xs" :class="step === i+1 ? 'text-ink-primary font-medium' : 'text-ink-muted'" x-text="s"></span>
+              </div>
+              <template x-if="i < steps.length - 1">
+                <div class="w-8 h-px bg-surface-3"></div>
+              </template>
+            </div>
+          </template>
+        </div>
+      </div>
+      <button @click="close()" class="p-1.5 rounded-lg hover:bg-surface-2 text-ink-muted hover:text-ink-primary transition-colors">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- Modal body -->
+    <div class="flex-1 overflow-y-auto px-6 py-5">
+
+      <!-- Step 1: Выбор кластера (региона) -->
+      <div x-show="step === 1">
+        <p class="text-sm text-ink-muted mb-3">Выберите регион поставки. Ozon сам назначит склад.</p>
+        <div x-show="clustersLoading" class="flex items-center gap-2 text-sm text-ink-muted mb-3">
+          <svg class="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+          Загружаю регионы...
+        </div>
+        <div x-show="clustersError" class="text-sm text-red-400 mb-3" x-text="clustersError"></div>
+        <div x-show="!clustersLoading && clusters.length > 0">
+          <input type="text" x-model="clusterFilter" placeholder="Фильтр..."
+                 class="w-full px-3 py-2 bg-surface-2 border border-surface-3 rounded-lg text-sm text-ink-primary placeholder-ink-muted focus:outline-none focus:border-blue-500 mb-2"/>
+          <div class="space-y-1.5 max-h-64 overflow-y-auto pr-1">
+            <template x-for="cl in filteredClusters" :key="cl.macrolocal_cluster_id">
+              <button @click="selectedCluster = cl"
+                      :class="selectedCluster?.macrolocal_cluster_id === cl.macrolocal_cluster_id
+                              ? 'border-blue-500 bg-blue-500/10'
+                              : 'border-surface-3 hover:border-surface-2 bg-surface-2 hover:bg-surface-3'"
+                      class="w-full flex items-center justify-between px-4 py-3 border rounded-xl text-left transition-colors">
+                <div class="text-sm font-medium text-ink-primary" x-text="cl.name"></div>
+                <template x-if="selectedCluster?.macrolocal_cluster_id === cl.macrolocal_cluster_id">
+                  <svg class="w-4 h-4 text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                  </svg>
+                </template>
+              </button>
+            </template>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 2: Товары + Тип поставки -->
+      <div x-show="step === 2">
+        <div x-show="selectedCluster" class="flex items-center gap-2 mb-3 px-3 py-2 bg-surface-2 border border-surface-3 rounded-lg text-xs text-ink-muted">
+          <svg class="w-3.5 h-3.5 text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+          <span x-text="selectedCluster?.name"></span>
+          <button @click="step = 1" class="ml-auto text-blue-400 hover:text-blue-300 underline">изменить</button>
+        </div>
+
+        <!-- Тип поставки -->
+        <div class="mb-4">
+          <div class="text-xs text-ink-muted font-medium uppercase tracking-wide mb-2">Тип поставки</div>
+          <div class="grid grid-cols-2 gap-2">
+            <button @click="supplyType = 'DIRECT'; selectedDropOff = null"
+                    :class="supplyType === 'DIRECT' ? 'border-blue-500 bg-blue-500/10 text-ink-primary' : 'border-surface-3 bg-surface-2 text-ink-secondary hover:bg-surface-3'"
+                    class="px-3 py-2.5 border rounded-xl text-sm font-medium transition-colors text-left">
+              <div class="font-semibold">Прямая</div>
+              <div class="text-xs text-ink-muted mt-0.5">Привожу на склад Ozon</div>
+            </button>
+            <button @click="supplyType = 'CROSSDOCK'; if(!selectedDropOff && defaultDropOff) selectedDropOff = defaultDropOff"
+                    :class="supplyType === 'CROSSDOCK' ? 'border-blue-500 bg-blue-500/10 text-ink-primary' : 'border-surface-3 bg-surface-2 text-ink-secondary hover:bg-surface-3'"
+                    class="px-3 py-2.5 border rounded-xl text-sm font-medium transition-colors text-left">
+              <div class="font-semibold">Транзит (кросс-док)</div>
+              <div class="text-xs text-ink-muted mt-0.5">Отгружаю в ПВЗ / СЦ</div>
+            </button>
+          </div>
+        </div>
+
+        <!-- Транзитный склад (только для CROSSDOCK) -->
+        <div x-show="supplyType === 'CROSSDOCK'" class="mb-4 bg-surface-2 border border-surface-3 rounded-xl p-3">
+          <div class="text-xs text-ink-muted font-medium uppercase tracking-wide mb-2">Точка отгрузки (ПВЗ / СЦ)</div>
+          <div class="flex gap-2 mb-2">
+            <input type="text" x-model="dropOffQuery" @input.debounce.500ms="searchDropOff()"
+                   placeholder="Город, минимум 4 символа..."
+                   class="flex-1 px-3 py-2 text-sm bg-surface-1 border border-surface-3 rounded-lg text-ink-primary placeholder-ink-muted focus:outline-none focus:border-blue-500"/>
+            <div x-show="dropOffLoading" class="flex items-center px-2">
+              <svg class="w-4 h-4 animate-spin text-ink-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+              </svg>
+            </div>
+          </div>
+          <div x-show="selectedDropOff" class="flex items-center gap-2 mb-2 px-3 py-2 bg-green-500/10 border border-green-500/30 rounded-lg text-xs text-green-400">
+            <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+            <span x-text="selectedDropOff?.name || selectedDropOff?.warehouse_name"></span>
+            <button @click="selectedDropOff = null; dropOffWarehouses = []" class="ml-auto text-green-300 hover:text-green-200 underline">сбросить</button>
+          </div>
+          <div x-show="dropOffWarehouses.length > 0 && !selectedDropOff" class="space-y-1 max-h-40 overflow-y-auto">
+            <template x-for="wh in dropOffWarehouses" :key="wh.warehouse_id">
+              <button @click="selectedDropOff = wh; dropOffWarehouses = []"
+                      class="w-full text-left px-3 py-2 bg-surface-1 hover:bg-surface-3 border border-surface-3 rounded-lg transition-colors">
+                <div class="text-xs font-medium text-ink-primary" x-text="wh.name || wh.warehouse_name || 'Склад #' + wh.warehouse_id"></div>
+                <div class="text-[10px] text-ink-muted mt-0.5" x-text="wh.address || ''"></div>
+              </button>
+            </template>
+          </div>
+          <div x-show="dropOffError" class="text-xs text-red-400 mt-1" x-text="dropOffError"></div>
+        </div>
+
+        <p class="text-sm text-ink-muted mb-3">Добавьте артикулы товаров и количество для поставки.</p>
+        <div class="space-y-2 mb-3">
+          <template x-for="(item, idx) in items" :key="idx">
+            <div class="flex items-center gap-2">
+              <input x-model="item.article" type="text" placeholder="Артикул товара"
+                     class="flex-1 px-3 py-2 text-sm bg-surface-2 border border-surface-3 rounded-lg text-ink-primary placeholder-ink-muted focus:outline-none focus:border-blue-500"/>
+              <input x-model.number="item.quantity" type="number" min="1" placeholder="Кол-во"
+                     class="w-24 px-3 py-2 text-sm bg-surface-2 border border-surface-3 rounded-lg text-ink-primary focus:outline-none focus:border-blue-500"/>
+              <button @click="items.splice(idx, 1)" x-show="items.length > 1"
+                      class="p-2 text-ink-muted hover:text-red-400 transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+              </button>
+            </div>
+          </template>
+        </div>
+        <button @click="items.push({article: '', quantity: 1})"
+                class="flex items-center gap-1.5 text-sm text-blue-400 hover:text-blue-300 transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+          </svg>
+          Добавить товар
+        </button>
+        <div x-show="draftError" class="mt-3 text-sm text-red-400">
+          <span x-text="draftError"></span>
+          <span x-show="supplyType === 'CROSSDOCK' && draftError" class="block mt-1 text-ink-muted">Попробуйте другую точку отгрузки выше.</span>
+        </div>
+        <div x-show="draftLoading" class="mt-3 flex items-center gap-2 text-sm text-ink-muted">
+          <svg class="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+          Создаю черновик, загружаю доступные слоты...
+        </div>
+      </div>
+
+      <!-- Step 3: Слот -->
+      <div x-show="step === 3">
+        <div x-show="selectedDraftWarehouse" class="flex items-center gap-2 mb-3 px-3 py-2 bg-surface-2 border border-surface-3 rounded-lg text-xs text-ink-muted">
+          <svg class="w-3.5 h-3.5 text-green-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+          <span x-text="selectedDraftWarehouse?.storage_warehouse?.name || selectedDraftWarehouse?.name || 'Склад назначен Ozon'"></span>
+        </div>
+        <p class="text-sm text-ink-muted mb-3">Выберите удобный слот для приёмки товара.</p>
+        <div x-show="draftTimeslots.length === 0" class="text-sm text-ink-muted bg-surface-2 border border-surface-3 rounded-xl px-4 py-3">
+          Доступных слотов нет. Попробуйте позже или выберите другой регион.
+        </div>
+        <div class="space-y-1.5 max-h-80 overflow-y-auto pr-1">
+          <template x-for="(slot, idx) in draftTimeslots" :key="idx">
+            <button @click="selectedSlot = slot"
+                    :class="selectedSlot === slot ? 'border-blue-500 bg-blue-500/10' : 'border-surface-3 bg-surface-2 hover:bg-surface-3'"
+                    class="w-full flex items-center justify-between px-4 py-3 border rounded-xl text-left transition-colors">
+              <div>
+                <div class="text-sm font-medium text-ink-primary" x-text="fmtSlotDate(slot.from)"></div>
+                <div class="text-xs text-ink-muted mt-0.5" x-text="fmtSlotTime(slot.from, slot.to)"></div>
+              </div>
+              <template x-if="selectedSlot === slot">
+                <svg class="w-4 h-4 text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                </svg>
+              </template>
+            </button>
+          </template>
+        </div>
+        <div x-show="confirmError" class="mt-3 text-sm text-red-400" x-text="confirmError"></div>
+        <!-- Success -->
+        <div x-show="confirmed" class="mt-4 flex items-start gap-3 bg-green-500/10 border border-green-500/30 rounded-xl p-4">
+          <svg class="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+          <div>
+            <div class="text-sm font-semibold text-green-400">Заявка создана!</div>
+            <div class="text-xs text-ink-muted mt-1">Обновите список заявок, чтобы увидеть новую поставку.</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Modal footer -->
+    <div class="flex items-center justify-between px-6 py-4 border-t border-surface-2 flex-shrink-0">
+      <button x-show="step > 1 && !confirmed" @click="step--"
+              class="px-4 py-2 text-sm text-ink-secondary hover:text-ink-primary transition-colors">
+        ← Назад
+      </button>
+      <div x-show="step === 1 || confirmed" class="flex-1"></div>
+
+      <div class="flex items-center gap-2">
+        <template x-if="confirmed">
+          <button @click="close()" class="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors">
+            Закрыть
+          </button>
+        </template>
+        <template x-if="step === 1 && !confirmed">
+          <button @click="step = 2" :disabled="!selectedCluster"
+                  class="px-5 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors">
+            Далее: товары →
+          </button>
+        </template>
+        <template x-if="step === 2 && !confirmed">
+          <button @click="createDraft()" :disabled="draftLoading || !hasValidItems || (supplyType === 'CROSSDOCK' && !selectedDropOff)"
+                  class="px-5 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors">
+            <span x-text="draftLoading ? 'Создаю черновик...' : 'Далее: выбор слота →'"></span>
+          </button>
+        </template>
+        <template x-if="step === 3 && !confirmed">
+          <button @click="confirmOrder()" :disabled="!selectedSlot || confirming"
+                  class="px-5 py-2 bg-green-600 hover:bg-green-500 disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors">
+            <span x-text="confirming ? 'Создаю заявку...' : 'Создать заявку'"></span>
+          </button>
+        </template>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const _STATE_LABELS = {
+  'DRAFT':           { label: 'Черновик',           dot: 'bg-ink-muted',    cls: 'bg-surface-2 text-ink-muted' },
+  'DATA_FILLING':    { label: 'Заполнение данных',   dot: 'bg-ink-muted',    cls: 'bg-surface-2 text-ink-muted' },
+  'DATA_FILLED':     { label: 'Данные заполнены',    dot: 'bg-blue-300',     cls: 'bg-blue-500/10 text-blue-300' },
+  'CONFIRMED':       { label: 'Подтверждено',        dot: 'bg-blue-400',     cls: 'bg-blue-500/15 text-blue-400' },
+  'APPROVED':        { label: 'Одобрено',            dot: 'bg-blue-400',     cls: 'bg-blue-500/15 text-blue-400' },
+  'READY_TO_SUPPLY': { label: 'Готов к отгрузке',    dot: 'bg-blue-400',     cls: 'bg-blue-500/15 text-blue-400' },
+  'SUPPLYING':       { label: 'В пути',              dot: 'bg-cyan-400',     cls: 'bg-cyan-500/15 text-cyan-400' },
+  'ACCEPTANCE':      { label: 'Приёмка на складе',   dot: 'bg-yellow-400',   cls: 'bg-yellow-500/15 text-yellow-400' },
+  'ACT_MATCHING':    { label: 'Согласование акта',   dot: 'bg-orange-400',   cls: 'bg-orange-500/15 text-orange-400' },
+  'SUPPLIED':        { label: 'Завершена',            dot: 'bg-green-400',    cls: 'bg-green-500/15 text-green-400' },
+  'CANCELLED':       { label: 'Отменена',             dot: 'bg-red-400',      cls: 'bg-red-500/15 text-red-400' },
+};
+
+const _TIMELINE_STEPS = [
+  { key: 'DATA_FILLING',    label: 'Создана / Заполнение' },
+  { key: 'READY_TO_SUPPLY', label: 'Готов к отгрузке' },
+  { key: 'SUPPLYING',       label: 'В пути' },
+  { key: 'ACCEPTANCE',      label: 'Приёмка на складе' },
+  { key: 'ACT_MATCHING',    label: 'Согласование актов' },
+  { key: 'SUPPLIED',        label: 'Завершена' },
+];
+
+// ── Shared slot formatters ────────────────────────────────────────────────────
+function fmtSlotDate(from) {
+  if (!from) return '—';
+  try {
+    return new Date(from).toLocaleDateString('ru-RU', {weekday:'short', day:'2-digit', month:'long'});
+  } catch { return from; }
+}
+function fmtSlotTime(from, to) {
+  if (!from) return '—';
+  try {
+    const tf = new Date(from).toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'});
+    const tt = to ? new Date(to).toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'}) : '';
+    return tf + (tt ? ' – ' + tt : '');
+  } catch { return from; }
+}
+
+// ── Main orders list component ────────────────────────────────────────────────
+function fboOrdersApp() {
+  return {
+    orders: [],
+    stats: {},
+    loading: false,
+    syncing: false,
+    error: null,
+    lastSync: null,
+    search: '',
+    activeTab: 'all',
+    openMenu: null,
+    selectedOrder: null,
+    detailHistory: [],
+    tabs: [
+      { key: 'all',     label: 'Все' },
+      { key: 'active',  label: 'Активные' },
+      { key: 'transit', label: 'В пути' },
+      { key: 'done',    label: 'Завершённые' },
+    ],
+    hunterForm: {
+      orderId: null, date_from: '', date_to: '',
+      time_from: '09:00', time_to: '18:00',
+      submitting: false, success: false, error: null,
+    },
+    slotPicker: {
+      open: false,
+      loading: false,
+      error: null,
+      setError: null,
+      slots: [],
+      selecting: false,
+      success: false,
+    },
+
+    async init() {
+      await this.loadOrders(false);
+      // Auto-open wizard if navigated from FBO table with ?create=1
+      const p = new URLSearchParams(location.search);
+      if (p.get('create') === '1') {
+        const article = p.get('article') || '';
+        const qty = parseInt(p.get('qty') || '0', 10);
+        const cluster = p.get('cluster') || '';
+        history.replaceState({}, '', location.pathname);
+        window.dispatchEvent(new CustomEvent('fbo-open-wizard', {
+          detail: { article, quantity: qty || 1, clusterName: cluster }
+        }));
+      }
+    },
+
+    async loadOrders(forceSync) {
+      this.loading = true;
+      this.error = null;
+      try {
+        const url = '/api/fbo/orders' + (forceSync ? '?sync=true' : '');
+        const r = await fetch(url);
+        const d = await r.json();
+        if (d.error) { this.error = d.error; return; }
+        this.orders = d.orders || [];
+        this.stats  = d.stats  || {};
+        this.lastSync = new Date().toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'});
+      } catch (e) {
+        this.error = 'Ошибка загрузки: ' + e.message;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    async syncOrders() {
+      this.syncing = true;
+      try {
+        const r = await fetch('/api/fbo/orders/sync', { method: 'POST' });
+        const d = await r.json();
+        if (d.ok) await this.loadOrders(false);
+        else this.error = d.error || 'Ошибка синхронизации';
+      } catch (e) {
+        this.error = 'Ошибка: ' + e.message;
+      } finally {
+        this.syncing = false;
+      }
+    },
+
+    async selectOrder(order) {
+      this.selectedOrder = order;
+      this.hunterForm.orderId = null;
+      this.hunterForm.success = false;
+      this.slotPicker.open = false;
+      this.slotPicker.slots = [];
+      this.slotPicker.error = null;
+      this.slotPicker.setError = null;
+      this.slotPicker.success = false;
+      this.detailHistory = [];
+      try {
+        const r = await fetch('/api/fbo/orders/' + order.supply_order_id);
+        const d = await r.json();
+        this.detailHistory = d.history || [];
+      } catch {}
+    },
+
+    get filteredOrders() {
+      let result = this.orders;
+      if (this.activeTab === 'active')  result = result.filter(o => ['DATA_FILLING','DATA_FILLED','CONFIRMED','APPROVED','READY_TO_SUPPLY'].includes(o.state));
+      if (this.activeTab === 'transit') result = result.filter(o => o.state === 'SUPPLYING');
+      if (this.activeTab === 'done')    result = result.filter(o => ['SUPPLIED','CANCELLED'].includes(o.state));
+      if (this.search) {
+        const q = this.search.toLowerCase();
+        result = result.filter(o =>
+          String(o.supply_order_id).includes(q) ||
+          (o.order_number || '').toLowerCase().includes(q) ||
+          (o.cluster || '').toLowerCase().includes(q)
+        );
+      }
+      return result;
+    },
+
+    statusBadge(state) {
+      return _STATE_LABELS[state] || { label: state || '—', dot: 'bg-ink-muted', cls: 'bg-surface-2 text-ink-muted' };
+    },
+
+    fmtSlot(from, to) {
+      if (!from) return '—';
+      try {
+        const df = new Date(from);
+        const dt = to ? new Date(to) : null;
+        const date = df.toLocaleDateString('ru-RU', {day:'2-digit', month:'2-digit'});
+        const tf   = df.toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'});
+        const tt   = dt ? dt.toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'}) : '';
+        return date + ' · ' + tf + (tt ? ' – ' + tt : '');
+      } catch { return from; }
+    },
+
+    fmtSlotDate,
+    fmtSlotTime,
+
+    buildTimeline(order, history) {
+      const doneKeys = new Set((history || []).map(h => h.state));
+      const currentState = order.state;
+      const historyMap = {};
+      (history || []).forEach(h => { historyMap[h.state] = h.recorded_at; });
+      return _TIMELINE_STEPS.map(step => {
+        const done    = doneKeys.has(step.key) && step.key !== currentState;
+        const current = step.key === currentState;
+        let time = null;
+        if (historyMap[step.key]) {
+          try {
+            time = new Date(historyMap[step.key]).toLocaleString('ru-RU', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+          } catch {}
+        }
+        return { ...step, done, current, time };
+      });
+    },
+
+    // ── Slot picker ─────────────────────────────────────────────────────────
+    toggleSlotPicker() {
+      this.slotPicker.open = !this.slotPicker.open;
+      if (this.slotPicker.open && this.slotPicker.slots.length === 0 && this.selectedOrder) {
+        this.loadSlots(this.selectedOrder.supply_order_id);
+      }
+    },
+
+    async loadSlots(orderId) {
+      this.slotPicker.loading = true;
+      this.slotPicker.error = null;
+      this.slotPicker.slots = [];
+      this.slotPicker.success = false;
+      this.slotPicker.setError = null;
+      try {
+        const r = await fetch('/api/fbo/orders/' + orderId + '/timeslots');
+        const d = await r.json();
+        if (d.error) { this.slotPicker.error = d.error; return; }
+        this.slotPicker.slots = d.timeslots || [];
+      } catch (e) {
+        this.slotPicker.error = 'Ошибка: ' + e.message;
+      } finally {
+        this.slotPicker.loading = false;
+      }
+    },
+
+    async pickSlot(slot) {
+      if (!this.selectedOrder) return;
+      this.slotPicker.selecting = true;
+      this.slotPicker.setError = null;
+      this.slotPicker.success = false;
+      try {
+        const r = await fetch('/api/fbo/orders/' + this.selectedOrder.supply_order_id + '/timeslot', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ slot_from: slot.from, slot_to: slot.to }),
+        });
+        const d = await r.json();
+        if (d.ok) {
+          this.slotPicker.success = true;
+          // Update local display
+          this.selectedOrder.timeslot_from = slot.from;
+          this.selectedOrder.timeslot_to   = slot.to;
+          const idx = this.orders.findIndex(o => o.supply_order_id === this.selectedOrder.supply_order_id);
+          if (idx !== -1) {
+            this.orders[idx].timeslot_from = slot.from;
+            this.orders[idx].timeslot_to   = slot.to;
+          }
+        } else {
+          this.slotPicker.setError = d.error || 'Ошибка установки слота';
+        }
+      } catch (e) {
+        this.slotPicker.setError = 'Ошибка: ' + e.message;
+      } finally {
+        this.slotPicker.selecting = false;
+      }
+    },
+
+    // ── Slot hunter ─────────────────────────────────────────────────────────
+    openHunterFor(order) {
+      this.hunterForm.orderId  = order.supply_order_id;
+      this.hunterForm.success  = false;
+      this.hunterForm.error    = null;
+      if (!this.selectedOrder || this.selectedOrder.supply_order_id !== order.supply_order_id) {
+        this.selectOrder(order);
+      }
+      const today = new Date();
+      const fmt = d => d.toISOString().slice(0, 10);
+      const in7  = new Date(today); in7.setDate(today.getDate() + 7);
+      this.hunterForm.date_from = fmt(today);
+      this.hunterForm.date_to   = fmt(in7);
+    },
+
+    async startHunter() {
+      this.hunterForm.submitting = true;
+      this.hunterForm.error = null;
+      this.hunterForm.success = false;
+      try {
+        const r = await fetch('/api/fbo/orders/' + this.hunterForm.orderId + '/slot-hunter', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            target_date_from: this.hunterForm.date_from,
+            target_date_to:   this.hunterForm.date_to,
+            target_time_from: this.hunterForm.time_from,
+            target_time_to:   this.hunterForm.time_to,
+            interval_sec:     60,
+          }),
+        });
+        const d = await r.json();
+        if (d.ok) this.hunterForm.success = true;
+        else this.hunterForm.error = d.error || 'Ошибка';
+      } catch (e) {
+        this.hunterForm.error = 'Ошибка: ' + e.message;
+      } finally {
+        this.hunterForm.submitting = false;
+      }
+    },
+
+    async deleteOrder(order) {
+      if (!confirm(`Удалить заявку ${order.supply_order_id} из списка?\n\nЭто удалит её только у нас — на Ozon она останется как есть.`)) return;
+      try {
+        const r = await fetch('/api/fbo/orders/' + order.supply_order_id, { method: 'DELETE' });
+        const d = await r.json();
+        if (d.ok) {
+          this.orders = this.orders.filter(o => o.supply_order_id !== order.supply_order_id);
+          this.selectedOrder = null;
+        } else {
+          alert('Ошибка: ' + (d.error || 'неизвестная ошибка'));
+        }
+      } catch (e) {
+        alert('Ошибка: ' + e.message);
+      }
+    },
+
+    openWizard() {
+      window.dispatchEvent(new CustomEvent('fbo-open-wizard', { detail: {} }));
+    },
+
+    toggleMenu(id) { this.openMenu = this.openMenu === id ? null : id; },
+    copyId(val) { navigator.clipboard?.writeText(String(val)).catch(() => {}); },
+  };
+}
+
+// ── Create Order Wizard component ─────────────────────────────────────────────
+function fboWizardApp() {
+  return {
+    open: false,
+    step: 1,
+    steps: ['Регион', 'Товары', 'Слот'],
+
+    // Step 1: clusters
+    clusters: [],
+    clustersLoading: false,
+    clustersError: null,
+    clusterFilter: '',
+    selectedCluster: null,
+    pendingCluster: null,
+
+    // Step 2: items + supply type
+    items: [{ article: '', quantity: 1 }],
+    supplyType: 'DIRECT',
+
+    // Step 2: crossdock drop-off
+    dropOffQuery: '',
+    dropOffWarehouses: [],
+    dropOffLoading: false,
+    dropOffError: null,
+    selectedDropOff: null,
+    defaultDropOff: null,  // loaded from settings once
+
+    // Step 2→3: draft creation
+    draftId: null,
+    draftTimeslots: [],
+    draftWarehouses: [],
+    selectedDraftWarehouse: null,
+    draftLoading: false,
+    draftError: null,
+
+    // Step 3: confirm
+    selectedSlot: null,
+    confirming: false,
+    confirmError: null,
+    confirmed: false,
+
+    get hasValidItems() {
+      return this.items.some(i => i.article.trim() && i.quantity > 0);
+    },
+
+    get filteredClusters() {
+      const q = this.clusterFilter.toLowerCase();
+      if (!q) return this.clusters;
+      return this.clusters.filter(c => (c.name || '').toLowerCase().includes(q));
+    },
+
+    fmtSlotDate,
+    fmtSlotTime,
+
+    _cityFromCluster(cluster) {
+      // "Москва, МО и Дальние регионы" → "Москва"
+      // "Санкт-Петербург и СЗО"        → "Санкт-Петербург"
+      return (cluster || '').split(' и ')[0].split(',')[0].trim();
+    },
+
+    async initDefaults() {
+      try {
+        const r = await fetch('/api/settings');
+        if (r.ok) {
+          const d = await r.json();
+          if (d.fbo_default_drop_off) {
+            this.defaultDropOff = JSON.parse(d.fbo_default_drop_off);
+          }
+        }
+      } catch(e) {}
+    },
+
+    openWizard(detail) {
+      this.open = true;
+      this.step = 1;
+      this.pendingCluster = detail?.clusterName || null;
+      this.selectedCluster = null;
+      this.clusterFilter = '';
+      this.items = [{ article: detail?.article || '', quantity: detail?.quantity || 1 }];
+      this.supplyType = 'DIRECT';
+      this.dropOffQuery = '';
+      this.dropOffWarehouses = [];
+      this.dropOffLoading = false;
+      this.dropOffError = null;
+      this.selectedDropOff = null;
+      this.draftId = null;
+      this.draftTimeslots = [];
+      this.draftWarehouses = [];
+      this.selectedDraftWarehouse = null;
+      this.draftError = null;
+      this.selectedSlot = null;
+      this.confirmed = false;
+      this.confirmError = null;
+      if (this.clusters.length === 0) {
+        this.loadClusters();
+      } else {
+        this._tryAutoSelectCluster();
+      }
+    },
+
+    close() {
+      this.open = false;
+    },
+
+    async loadClusters() {
+      this.clustersLoading = true;
+      this.clustersError = null;
+      try {
+        const r = await fetch('/api/fbo/supply/clusters');
+        const d = await r.json();
+        if (d.error) { this.clustersError = d.error; return; }
+        this.clusters = d.clusters || [];
+        this._tryAutoSelectCluster();
+      } catch (e) {
+        this.clustersError = 'Ошибка: ' + e.message;
+      } finally {
+        this.clustersLoading = false;
+      }
+    },
+
+    _tryAutoSelectCluster() {
+      if (!this.pendingCluster || this.selectedCluster) return;
+      const city = this._cityFromCluster(this.pendingCluster).toLowerCase();
+      const match = this.clusters.find(c => (c.name || '').toLowerCase().includes(city));
+      if (match) {
+        this.selectedCluster = match;
+        this.step = 2;
+      }
+      this.pendingCluster = null;
+    },
+
+    async searchDropOff() {
+      if (this.dropOffQuery.trim().length < 4) return;
+      this.dropOffLoading = true;
+      this.dropOffError = null;
+      this.dropOffWarehouses = [];
+      try {
+        const r = await fetch('/api/fbo/supply/drop-off-warehouses?q=' + encodeURIComponent(this.dropOffQuery.trim()));
+        const d = await r.json();
+        if (d.error) { this.dropOffError = d.error; return; }
+        this.dropOffWarehouses = d.warehouses || [];
+        if (this.dropOffWarehouses.length === 0) this.dropOffError = 'Точки не найдены. Попробуйте другой запрос.';
+      } catch (e) {
+        this.dropOffError = 'Ошибка: ' + e.message;
+      } finally {
+        this.dropOffLoading = false;
+      }
+    },
+
+    async createDraft() {
+      const validItems = this.items.filter(i => i.article.trim() && i.quantity > 0);
+      if (!validItems.length || !this.selectedCluster) return;
+      if (this.supplyType === 'CROSSDOCK' && !this.selectedDropOff) return;
+      this.draftLoading = true;
+      this.draftError = null;
+      try {
+        const payload = {
+          macrolocal_cluster_id: this.selectedCluster.macrolocal_cluster_id,
+          items: validItems.map(i => ({ article: i.article.trim(), quantity: Number(i.quantity) })),
+          supply_type: this.supplyType,
+        };
+        if (this.supplyType === 'CROSSDOCK' && this.selectedDropOff) {
+          payload.drop_off_warehouse_id = this.selectedDropOff.warehouse_id;
+          payload.drop_off_warehouse_type = this.selectedDropOff.warehouse_type || 'CROSS_DOCK';
+        }
+        const r = await fetch('/api/fbo/orders/draft', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload),
+        });
+        const d = await r.json();
+        if (d.error) { this.draftError = d.error; return; }
+        this.draftId = d.draft_id;
+        this.draftTimeslots = d.timeslots || [];
+        this.draftWarehouses = d.warehouses || [];
+        // Auto-select best warehouse by total_score
+        this.selectedDraftWarehouse = this.draftWarehouses.sort(
+          (a, b) => (b.total_score || 0) - (a.total_score || 0)
+        )[0] || null;
+        if (!this.draftId) { this.draftError = 'Не удалось создать черновик. Ответ: ' + JSON.stringify(d); return; }
+        this.step = 3;
+      } catch (e) {
+        this.draftError = 'Ошибка: ' + e.message;
+      } finally {
+        this.draftLoading = false;
+      }
+    },
+
+    async confirmOrder() {
+      if (!this.selectedSlot || !this.draftId || !this.selectedCluster) return;
+      this.confirming = true;
+      this.confirmError = null;
+      try {
+        const warehouseId = this.selectedDraftWarehouse?.storage_warehouse?.warehouse_id
+          || this.selectedDraftWarehouse?.warehouse_id;
+        const r = await fetch('/api/fbo/orders/draft/' + encodeURIComponent(this.draftId) + '/confirm', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            macrolocal_cluster_id: this.selectedCluster.macrolocal_cluster_id,
+            storage_warehouse_id: warehouseId,
+            slot_from: this.selectedSlot.from || this.selectedSlot.from_in_timezone,
+            slot_to: this.selectedSlot.to || this.selectedSlot.to_in_timezone,
+            supply_type: this.supplyType,
+          }),
+        });
+        const d = await r.json();
+        if (d.ok) {
+          this.confirmed = true;
+        } else {
+          this.confirmError = d.error || 'Ошибка подтверждения';
+        }
+      } catch (e) {
+        this.confirmError = 'Ошибка: ' + e.message;
+      } finally {
+        this.confirming = false;
+      }
+    },
+  };
+}
+</script>
+{% endblock %}
