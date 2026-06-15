@@ -40,6 +40,9 @@ from modules.fbo.slot_hunter import (
     get_fbo_clusters as slot_get_clusters,
 )
 from modules.fbo.slot_hunter import (
+    get_scheduler as _get_slot_scheduler,
+)
+from modules.fbo.slot_hunter import (
     list_supply_orders as _slot_list_orders,
 )
 from modules.fbo.slot_hunter import (
@@ -136,6 +139,12 @@ def _init_databases() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _init_databases()
+    # Фоновый поток слот-хантера: без него созданные задачи не опрашивают Ozon.
+    if os.getenv("DISABLE_SLOT_HUNTER") != "1":
+        try:
+            _get_slot_scheduler().start()
+        except Exception:
+            logger.exception("slot-hunter scheduler start failed")
     yield
 
 
