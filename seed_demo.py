@@ -139,10 +139,44 @@ def seed() -> None:
     analytics.close()
     fbo.close()
 
+    _ensure_demo_access()
+
     print(f"Готово: {n} SKU в сводке.")
     for st, c in by_status:
         print(f"  {st}: {c}")
     print("\nЗапусти приложение (start.bat) и открой http://localhost:4000/fbo")
+    print("Демо-режим: данные уже загружены. Кнопку «Обновить данные» не нажимай —")
+    print("ключи демонстрационные. Свои ключи Ozon впишешь позже на странице «Настройки».")
+
+
+def _ensure_demo_access() -> None:
+    """Демо-данные уже в БД, но экраны /fbo требуют введённых ключей.
+    Чтобы демо открылось без подключения к Ozon, проставляем плейсхолдер-ключи
+    в .env (только если настоящие ещё не введены)."""
+    import os
+    from pathlib import Path
+
+    env_path = Path(__file__).resolve().parent / ".env"
+    lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.exists() else []
+
+    def _has_real(prefix: str) -> bool:
+        for ln in lines:
+            if ln.strip().startswith(prefix):
+                return bool(ln.split("=", 1)[1].strip())
+        return False
+
+    if _has_real("OZON_CLIENT_ID=") and _has_real("OZON_API_KEY="):
+        return  # настоящие ключи уже есть — не трогаем
+
+    kept = [
+        ln for ln in lines
+        if not ln.strip().startswith(("OZON_CLIENT_ID=", "OZON_API_KEY="))
+    ]
+    kept.append("OZON_CLIENT_ID=demo")
+    kept.append("OZON_API_KEY=demo")
+    env_path.write_text("\n".join(kept) + "\n", encoding="utf-8")
+    os.environ.setdefault("OZON_CLIENT_ID", "demo")
+    os.environ.setdefault("OZON_API_KEY", "demo")
 
 
 if __name__ == "__main__":
