@@ -176,6 +176,15 @@ class SellerClient:
 
         return list(index.values())
 
+    def analytics_sales_basic(self, date_from: date, date_to: date) -> list[dict[str, Any]]:
+        """Только revenue + ordered_units по SKU×день — всё, что нужно FBO-расчёту.
+
+        Один батч вместо двух и без зависимости от Premium-метрик — в разы
+        быстрее, чем analytics_data_full(), для больших каталогов.
+        """
+        logger.info("analytics/data basic (revenue + ordered_units)...")
+        return self._analytics_paginated(date_from, date_to, list(_METRICS_BASIC))
+
     def _analytics_paginated(
         self, date_from: date, date_to: date, metrics: list[str]
     ) -> list[dict[str, Any]]:

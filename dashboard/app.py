@@ -207,13 +207,49 @@ async def settings_page(request: Request):
     )
 
 
+def _clear_demo_data() -> None:
+    """Демо-данные и реальные лежат в одних таблицах. При переходе с демо-ключей
+    на настоящие чистим их, чтобы первый реальный синк начинался с чистого листа
+    и пользователь не видел демо-заглушку вперемешку со своими товарами."""
+    from shared.db.models import get_connection as _get_analytics
+
+    plan = [
+        (_get_analytics, ["products", "sku_analytics_daily", "sku_stocks_by_warehouse"]),
+        (
+            get_fbo_connection,
+            [
+                "fbo_sku_summary",
+                "fbo_cluster_recommendations",
+                "fbo_sales_cluster",
+                "fbo_turnover",
+                "fbo_sync_status",
+            ],
+        ),
+    ]
+    for connect, tables in plan:
+        try:
+            c = connect()
+            for t in tables:
+                try:
+                    c.execute(f"DELETE FROM {t}")
+                except Exception:
+                    pass
+            c.commit()
+            c.close()
+        except Exception:
+            logger.exception("clear demo data failed")
+
+
 @app.post("/api/settings")
 async def api_settings_save(body: SettingsBody):
     client_id = body.client_id.strip()
     api_key = body.api_key.strip()
     if not client_id or not api_key:
         return JSONResponse({"ok": False, "error": "Заполните оба поля"}, status_code=400)
+    was_demo = os.getenv("OZON_CLIENT_ID") == "demo"
     _write_env_tokens(client_id, api_key)
+    if was_demo and client_id != "demo":
+        _clear_demo_data()
     return {"ok": True}
 
 

@@ -40,10 +40,19 @@ def sync_sales(
     client: SellerClient,
     date_from: date,
     date_to: date,
+    basic_only: bool = False,
 ) -> int:
-    """Fetch all analytics metrics by SKU+day and upsert. Returns row count."""
-    print(f"[sales] Fetching analytics {date_from} to {date_to} ...")
-    rows = client.analytics_data_full(date_from, date_to)
+    """Fetch analytics metrics by SKU+day and upsert. Returns row count.
+
+    basic_only=True тянет только revenue + ordered_units — всё, что нужно
+    FBO-расчёту. Втрое меньше запросов и не требует подписки Premium.
+    """
+    print(f"[sales] Fetching analytics {date_from} to {date_to} (basic_only={basic_only}) ...")
+    rows = (
+        client.analytics_sales_basic(date_from, date_to)
+        if basic_only
+        else client.analytics_data_full(date_from, date_to)
+    )
 
     # Ensure all expected columns present in each row
     for r in rows:
