@@ -79,23 +79,37 @@ def run_pipeline(days: int = 35) -> None:
 
     seller = SellerClient()  # ключи из .env; кинет ValueError, если не заданы
 
+    # [1/3] Каталог — имена/цены товаров.
     conn = get_connection()
     init_db(conn)
     try:
         with _step("catalog") as st:
             logger.info("[1/3] Каталог товаров…")
             st["rows"] = sync_catalog(conn, seller)
+    finally:
+        conn.close()
+    status_conn.close()  # отпускаем БД перед run_full_sync (он пишет свои шаги сам)
+
+    # [2/3] Главный расчёт: остатки, кластеры, FBO-постинги, оборачиваемость,
+    # рекомендации. Даёт реальные «что грузить» и кластеры БЫСТРО — из FBO-постингов
+    # и оборачиваемости, не дожидаясь медленной per-day аналитики. Свои шаги
+    # (stocks_refresh … compute) run_full_sync пишет в fbo_sync_status сам.
+    logger.info("[2/3] Остатки, кластеры, FBO-постинги, рекомендации…")
+    run_full_sync(company_id=None, sales_window_days=min(days, 35))
+
+    # [3/3] Per-day продажи — необязательное обогащение ABC. Долгий и чувствительный
+    # к лимитам Ozon вызов, поэтому он ПОСЛЕ основного результата и best-effort:
+    # его медленная работа или ошибка уже не мешают пользователю видеть рекомендации
+    # (они обновятся при следующем синке). _step гасит исключение, не роняя пайплайн.
+    status_conn = get_fbo_connection()
+    conn = get_connection()
+    try:
         with _step("sales") as st:
-            logger.info("[2/3] Продажи по дням…")
+            logger.info("[3/3] Продажи по дням (обогащение)…")
             st["rows"] = sync_sales(conn, seller, date_from, today, basic_only=True)
     finally:
         conn.close()
-
-    # run_full_sync сам пишет свои шаги (stocks_refresh, cluster_map, …, compute)
-    # в fbo_sync_status и индивидуально оборачивает каждый в try/except.
-    status_conn.close()
-    logger.info("[3/3] Остатки, кластеры, FBO-постинги, рекомендации…")
-    run_full_sync(company_id=None, sales_window_days=min(days, 35))
+        status_conn.close()
     logger.info("=== Готово ===")
 
 
