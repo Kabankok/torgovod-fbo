@@ -41,18 +41,46 @@ def _headers() -> dict[str, str]:
     }
 
 
+# Ozon держит посекундный лимит на draft/timeslot-эндпоинтах (code 8:
+# "request rate limit per second"). Разносим запросы во времени и ретраим 429.
+_REQ_GAP_SEC = 1.1          # минимум между любыми запросами к этим ручкам
+_RATE_BACKOFF = [1, 2, 4, 6]  # паузы перед повтором при 429, сек
+_req_lock = threading.Lock()
+_last_req_ts = 0.0
+
+
 def _post(path: str, body: dict[str, Any]) -> dict[str, Any]:
-    r = requests.post(f"{_BASE}{path}", headers=_headers(), json=body, timeout=30)
-    if not r.ok:
-        try:
-            detail = r.json()
-        except Exception:
-            detail = r.text
-        raise requests.HTTPError(
-            f"{r.status_code} {r.reason} for {path}: {detail}",
-            response=r,
-        )
-    return r.json()
+    global _last_req_ts
+    for attempt in range(len(_RATE_BACKOFF) + 1):
+        # Разносим старты запросов минимум на _REQ_GAP_SEC (потокобезопасно).
+        with _req_lock:
+            gap = time.monotonic() - _last_req_ts
+            if gap < _REQ_GAP_SEC:
+                time.sleep(_REQ_GAP_SEC - gap)
+            _last_req_ts = time.monotonic()
+
+        r = requests.post(f"{_BASE}{path}", headers=_headers(), json=body, timeout=30)
+
+        if r.status_code == 429 and attempt < len(_RATE_BACKOFF):
+            wait = _RATE_BACKOFF[attempt]
+            logger.warning("[slot_hunter] 429 на %s — пауза %ds и повтор", path, wait)
+            time.sleep(wait)
+            continue
+
+        if not r.ok:
+            try:
+                detail = r.json()
+            except Exception:
+                detail = r.text
+            raise requests.HTTPError(
+                f"{r.status_code} {r.reason} for {path}: {detail}",
+                response=r,
+            )
+        return r.json()
+
+    # Сюда не доходим (последняя попытка либо вернёт, либо бросит выше),
+    # но на всякий случай — явная ошибка.
+    raise requests.HTTPError(f"429 Too Many Requests for {path}: лимит Ozon не снят")
 
 
 # ── macrolocal_cluster_id → cluster name cache ────────────────────────────────
