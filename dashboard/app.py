@@ -365,6 +365,11 @@ async def fbo_clusters_page(request: Request):
     return templates.TemplateResponse(request, "fbo_clusters.html", {"active_page": "fbo"})
 
 
+@app.get("/fbo/wiki", response_class=HTMLResponse)
+async def fbo_wiki_page(request: Request):
+    return templates.TemplateResponse(request, "fbo_wiki.html", {"active_page": "wiki"})
+
+
 @app.get("/api/fbo/clusters")
 async def api_fbo_clusters(request: Request):
     conn = get_fbo_connection(company_id=_fbo_company_id(request))

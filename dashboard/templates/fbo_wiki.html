@@ -1,0 +1,361 @@
+{% extends "base.html" %}
+{% block title %}Вики — как это работает{% endblock %}
+
+{% block content %}
+<div class="flex flex-col h-full overflow-hidden">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between px-6 py-4 border-b border-surface-2 flex-shrink-0">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-lg bg-blue-500/10 flex items-center justify-center flex-shrink-0">
+        <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
+      </div>
+      <div>
+        <h1 class="text-lg font-semibold text-ink-primary">Вики · Как это работает</h1>
+        <p class="text-xs text-ink-muted mt-0.5">Откуда берутся цифры и как программа решает, что и сколько везти</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scrollable content -->
+  <div class="flex-1 overflow-auto scroll-smooth">
+    <div class="max-w-4xl mx-auto px-6 py-8 space-y-12">
+
+      <!-- Intro -->
+      <section>
+        <p class="text-ink-secondary leading-relaxed">
+          Программа берёт твои <span class="text-ink-primary font-medium">реальные данные из Ozon</span> — продажи, остатки, оборачиваемость —
+          и считает по каждому товару: пора ли его везти, <span class="text-ink-primary font-medium">сколько штук</span> и
+          <span class="text-ink-primary font-medium">в какой регион</span>. Цель одна: держать баланс между
+          <span class="text-red-400">дефицитом</span> (потеря продаж и позиций) и
+          <span class="text-blue-400">переизбытком</span> (замороженные деньги и плата за хранение).
+        </p>
+        <p class="text-ink-muted text-sm mt-3 leading-relaxed">
+          Ниже — без воды, как именно устроен расчёт. Все формулы — ровно те, что работают в программе.
+        </p>
+      </section>
+
+      <!-- TOC -->
+      <nav class="flex flex-wrap gap-2">
+        <a href="#flow"     class="px-3 py-1.5 text-xs font-medium rounded-lg bg-surface-2 text-ink-secondary hover:bg-surface-3 hover:text-ink-primary transition-colors">① Поток данных</a>
+        <a href="#status"   class="px-3 py-1.5 text-xs font-medium rounded-lg bg-surface-2 text-ink-secondary hover:bg-surface-3 hover:text-ink-primary transition-colors">② Статусы</a>
+        <a href="#howmuch"  class="px-3 py-1.5 text-xs font-medium rounded-lg bg-surface-2 text-ink-secondary hover:bg-surface-3 hover:text-ink-primary transition-colors">③ Сколько везти</a>
+        <a href="#metrics"  class="px-3 py-1.5 text-xs font-medium rounded-lg bg-surface-2 text-ink-secondary hover:bg-surface-3 hover:text-ink-primary transition-colors">④ Показатели</a>
+        <a href="#menu"     class="px-3 py-1.5 text-xs font-medium rounded-lg bg-surface-2 text-ink-secondary hover:bg-surface-3 hover:text-ink-primary transition-colors">⑤ Разделы меню</a>
+        <a href="#links"    class="px-3 py-1.5 text-xs font-medium rounded-lg bg-surface-2 text-ink-secondary hover:bg-surface-3 hover:text-ink-primary transition-colors">⑥ Взаимосвязи</a>
+      </nav>
+
+      <!-- ① Поток данных -->
+      <section id="flow" class="scroll-mt-6">
+        <h2 class="text-base font-semibold text-ink-primary flex items-center gap-2">
+          <span class="text-blue-400">①</span> Поток данных: от Ozon до рекомендации
+        </h2>
+        <p class="text-ink-muted text-sm mt-2 mb-5">Когда жмёшь «Обновить данные», происходит цепочка из четырёх шагов.</p>
+
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+          <div class="bg-surface-1 border border-surface-2 rounded-xl p-4">
+            <div class="text-xs font-semibold text-blue-400 mb-1">1 · Каталог</div>
+            <p class="text-xs text-ink-secondary leading-relaxed">Тянем список всех товаров, цены и названия из Ozon Seller API.</p>
+          </div>
+          <div class="bg-surface-1 border border-surface-2 rounded-xl p-4">
+            <div class="text-xs font-semibold text-blue-400 mb-1">2 · Факты</div>
+            <p class="text-xs text-ink-secondary leading-relaxed">Остатки по складам, продажи (FBO-заказы), оборачиваемость и IDC-оценка Ozon.</p>
+          </div>
+          <div class="bg-surface-1 border border-surface-2 rounded-xl p-4">
+            <div class="text-xs font-semibold text-blue-400 mb-1">3 · Расчёт</div>
+            <p class="text-xs text-ink-secondary leading-relaxed">Считаем ABC, спрос в день, дни до нуля и рекомендацию — по каждому кластеру.</p>
+          </div>
+          <div class="bg-surface-1 border border-surface-2 rounded-xl p-4">
+            <div class="text-xs font-semibold text-blue-400 mb-1">4 · Экраны</div>
+            <p class="text-xs text-ink-secondary leading-relaxed">Готовые цифры показываются в «Что грузить» и «Кластеры».</p>
+          </div>
+        </div>
+
+        <div class="mt-4 bg-surface-1 border border-surface-2 rounded-xl p-4">
+          <p class="text-xs text-ink-muted leading-relaxed">
+            <span class="text-ink-secondary font-medium">Важно про продажи.</span>
+            Спрос считается по всем заказам товара (и FBO, и FBS) из аналитики Ozon. Если товар хорошо идёт по FBS, но на FBO его почти нет —
+            программа всё равно увидит реальный спрос и предложит завезти его на FBO. Данные обновляются разом, одной датой среза.
+          </p>
+        </div>
+      </section>
+
+      <!-- ② Статусы -->
+      <section id="status" class="scroll-mt-6">
+        <h2 class="text-base font-semibold text-ink-primary flex items-center gap-2">
+          <span class="text-blue-400">②</span> Четыре статуса товара
+        </h2>
+        <p class="text-ink-muted text-sm mt-2 mb-5">Статус — это светофор по колонке «дни до нуля» и наличию рекомендации.</p>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div class="bg-red-500/5 border border-red-500/20 rounded-xl p-4">
+            <div class="flex items-center gap-2 mb-1.5">
+              <span class="w-2.5 h-2.5 rounded-full bg-red-400"></span>
+              <span class="font-semibold text-red-400">ДЕФИЦИТ</span>
+            </div>
+            <p class="text-sm text-ink-secondary leading-relaxed">Хватит <span class="font-medium text-ink-primary">меньше 7 дней</span>. Везти срочно, иначе товар кончится и просядет в выдаче.</p>
+          </div>
+          <div class="bg-yellow-500/5 border border-yellow-500/20 rounded-xl p-4">
+            <div class="flex items-center gap-2 mb-1.5">
+              <span class="w-2.5 h-2.5 rounded-full bg-yellow-400"></span>
+              <span class="font-semibold text-yellow-400">РИСК</span>
+            </div>
+            <p class="text-sm text-ink-secondary leading-relaxed">Хватит <span class="font-medium text-ink-primary">меньше 14 дней</span>, или запас ниже целевого и есть рекомендация догрузить.</p>
+          </div>
+          <div class="bg-green-500/5 border border-green-500/20 rounded-xl p-4">
+            <div class="flex items-center gap-2 mb-1.5">
+              <span class="w-2.5 h-2.5 rounded-full bg-green-400"></span>
+              <span class="font-semibold text-green-400">НОРМА</span>
+            </div>
+            <p class="text-sm text-ink-secondary leading-relaxed">Запас сбалансирован, везти не нужно. Ничего не делаешь.</p>
+          </div>
+          <div class="bg-blue-500/5 border border-blue-500/20 rounded-xl p-4">
+            <div class="flex items-center gap-2 mb-1.5">
+              <span class="w-2.5 h-2.5 rounded-full bg-blue-400"></span>
+              <span class="font-semibold text-blue-400">ИЗБЫТОК</span>
+            </div>
+            <p class="text-sm text-ink-secondary leading-relaxed">Запаса <span class="font-medium text-ink-primary">больше 90 дней</span> и везти не нужно. Деньги заморожены, идёт плата за хранение.</p>
+          </div>
+        </div>
+
+        <div class="mt-3 text-xs text-ink-muted bg-surface-1 border border-surface-2 rounded-xl p-4 leading-relaxed">
+          Точные пороги в коде: ДЕФИЦИТ &lt; 7 дней · РИСК &lt; 14 дней (или рекомендация &gt; 0) · ИЗБЫТОК &gt; 90 дней (и рекомендации нет) · остальное НОРМА.
+        </div>
+      </section>
+
+      <!-- ③ Сколько везти -->
+      <section id="howmuch" class="scroll-mt-6">
+        <h2 class="text-base font-semibold text-ink-primary flex items-center gap-2">
+          <span class="text-blue-400">③</span> Главное: как считается «сколько везти»
+        </h2>
+        <p class="text-ink-muted text-sm mt-2 mb-5">
+          Идея простая: посчитать, <span class="text-ink-primary">сколько товара уходит в день</span>, умножить на
+          <span class="text-ink-primary">целевой запас в днях</span>, вычесть то, что уже есть на складе и в пути. Разница — сколько везти.
+          Расчёт идёт <span class="text-ink-primary">по каждому региону (кластеру) отдельно</span>, потом суммируется.
+        </p>
+
+        <!-- Шаг 1 -->
+        <div class="bg-surface-1 border border-surface-2 rounded-xl p-5 mb-3">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="w-6 h-6 rounded-full bg-blue-500/15 text-blue-400 text-xs font-bold flex items-center justify-center">1</span>
+            <h3 class="font-semibold text-ink-primary text-sm">Спрос в день</h3>
+          </div>
+          <p class="text-sm text-ink-secondary leading-relaxed mb-3">
+            Базово — средние продажи за 30 дней. Если последние 10 дней идут активнее, подмешиваем свежий тренд (вес 60% на 10 дней, 40% на месяц).
+            Тренд учитываем только если продаж хотя бы 10 шт за месяц — иначе случайный всплеск раздул бы рекомендацию.
+          </p>
+          <pre class="bg-surface-2 rounded-lg p-3 text-xs font-mono text-blue-300 overflow-x-auto leading-relaxed">средний_30д = продажи_30д / 30
+если продажи_10д/10 &gt; средний_30д  и  продажи_30д ≥ 10:
+    спрос_в_день = 0.6 · (продажи_10д/10) + 0.4 · средний_30д
+иначе:
+    спрос_в_день = средний_30д</pre>
+          <p class="text-xs text-ink-muted mt-2 leading-relaxed">
+            Плюс «пол» от Ozon: если у Ozon своя оценка дневных продаж выше — берём её. Так не упустим спрос на товаре с рваной историей.
+          </p>
+        </div>
+
+        <!-- Шаг 2 -->
+        <div class="bg-surface-1 border border-surface-2 rounded-xl p-5 mb-3">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="w-6 h-6 rounded-full bg-blue-500/15 text-blue-400 text-xs font-bold flex items-center justify-center">2</span>
+            <h3 class="font-semibold text-ink-primary text-sm">Целевой запас в днях</h3>
+          </div>
+          <p class="text-sm text-ink-secondary leading-relaxed mb-3">
+            Сколько дней запаса держать. Зависит от важности товара по ABC и от сигнала Ozon (IDC), что склад пустеет.
+          </p>
+          <div class="grid grid-cols-2 gap-3 text-xs">
+            <div class="bg-surface-2 rounded-lg p-3">
+              <div class="text-ink-muted mb-1.5 font-medium uppercase tracking-wide">База по ABC</div>
+              <div class="space-y-1 text-ink-secondary">
+                <div class="flex justify-between"><span><span class="text-green-400 font-semibold">A</span> — ходовые</span><span class="font-mono text-ink-primary">90 дней</span></div>
+                <div class="flex justify-between"><span><span class="text-yellow-400 font-semibold">B</span> — средние</span><span class="font-mono text-ink-primary">60 дней</span></div>
+                <div class="flex justify-between"><span><span class="text-ink-muted font-semibold">C</span> — медленные</span><span class="font-mono text-ink-primary">60 дней</span></div>
+              </div>
+            </div>
+            <div class="bg-surface-2 rounded-lg p-3">
+              <div class="text-ink-muted mb-1.5 font-medium uppercase tracking-wide">Множитель IDC Ozon</div>
+              <div class="space-y-1 text-ink-secondary">
+                <div class="flex justify-between"><span><span class="text-red-400 font-semibold">RED</span> — мало</span><span class="font-mono text-ink-primary">× 1.30</span></div>
+                <div class="flex justify-between"><span><span class="text-yellow-400 font-semibold">YELLOW</span></span><span class="font-mono text-ink-primary">× 1.15</span></div>
+                <div class="flex justify-between"><span><span class="text-green-400 font-semibold">GREEN</span> — ок</span><span class="font-mono text-ink-primary">× 1.00</span></div>
+              </div>
+            </div>
+          </div>
+          <pre class="bg-surface-2 rounded-lg p-3 text-xs font-mono text-blue-300 overflow-x-auto mt-3">целевой_запас_дней = база_по_ABC × множитель_IDC</pre>
+        </div>
+
+        <!-- Шаг 3 -->
+        <div class="bg-surface-1 border border-surface-2 rounded-xl p-5 mb-3">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="w-6 h-6 rounded-full bg-blue-500/15 text-blue-400 text-xs font-bold flex items-center justify-center">3</span>
+            <h3 class="font-semibold text-ink-primary text-sm">Сама рекомендация</h3>
+          </div>
+          <pre class="bg-surface-2 rounded-lg p-3 text-xs font-mono text-blue-300 overflow-x-auto leading-relaxed">нужно_на_складе = спрос_в_день × целевой_запас_дней
+рекомендация    = нужно_на_складе − факт − в_пути   (но не меньше 0)</pre>
+          <p class="text-xs text-ink-muted mt-2 leading-relaxed">Считается отдельно для каждого кластера, затем складывается в общую цифру «к отгрузке» по товару.</p>
+        </div>
+
+        <!-- Шаг 4: ограничители -->
+        <div class="bg-surface-1 border border-surface-2 rounded-xl p-5 mb-5">
+          <div class="flex items-center gap-2 mb-3">
+            <span class="w-6 h-6 rounded-full bg-blue-500/15 text-blue-400 text-xs font-bold flex items-center justify-center">4</span>
+            <h3 class="font-semibold text-ink-primary text-sm">Предохранители</h3>
+          </div>
+          <ul class="space-y-2 text-sm text-ink-secondary">
+            <li class="flex gap-2"><span class="text-blue-400 mt-0.5">▸</span><span><span class="text-ink-primary font-medium">Потолок 120 дней.</span> Никогда не предлагаем запас больше чем на 120 дней — чтобы не заморозить деньги.</span></li>
+            <li class="flex gap-2"><span class="text-blue-400 mt-0.5">▸</span><span><span class="text-ink-primary font-medium">Не больше ×5 от продаж за 28 дней.</span> Страховка от выбросов на товарах с рваной историей.</span></li>
+            <li class="flex gap-2"><span class="text-blue-400 mt-0.5">▸</span><span><span class="text-ink-primary font-medium">Ноль продаж за 30 дней → рекомендация 0.</span> Не везём то, что не продаётся.</span></li>
+          </ul>
+        </div>
+
+        <!-- Пример -->
+        <div class="bg-blue-500/5 border border-blue-500/20 rounded-xl p-5">
+          <div class="flex items-center gap-2 mb-3">
+            <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+            <h3 class="font-semibold text-ink-primary text-sm">Пример на пальцах</h3>
+          </div>
+          <div class="space-y-1.5 text-sm text-ink-secondary leading-relaxed">
+            <p>Товар продаётся <span class="text-ink-primary font-mono">30 шт</span> за месяц (1 шт/день), а за последние 10 дней — <span class="text-ink-primary font-mono">20 шт</span> (2 шт/день). Идёт в рост.</p>
+            <p>→ Спрос в день с трендом: <span class="font-mono text-blue-300">0.6·2 + 0.4·1 = 1.6 шт/день</span></p>
+            <p>→ Категория <span class="text-green-400 font-semibold">A</span>, Ozon IDC <span class="text-green-400 font-semibold">GREEN</span> → целевой запас <span class="font-mono text-blue-300">90 × 1.0 = 90 дней</span></p>
+            <p>→ Нужно на складе: <span class="font-mono text-blue-300">1.6 × 90 ≈ 144 шт</span></p>
+            <p>→ Сейчас факт <span class="font-mono">30</span> + в пути <span class="font-mono">10</span> = 40 шт</p>
+            <p class="text-ink-primary font-medium pt-1">Рекомендация: 144 − 40 = <span class="text-blue-400">104 шт к отгрузке</span></p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ④ Показатели -->
+      <section id="metrics" class="scroll-mt-6">
+        <h2 class="text-base font-semibold text-ink-primary flex items-center gap-2">
+          <span class="text-blue-400">④</span> Что значат колонки и показатели
+        </h2>
+        <div class="mt-4 divide-y divide-surface-2 bg-surface-1 border border-surface-2 rounded-xl overflow-hidden">
+          <div class="p-4">
+            <div class="font-medium text-ink-primary text-sm">Спрос в день</div>
+            <p class="text-sm text-ink-muted mt-0.5 leading-relaxed">Сколько штук уходит в сутки. Среднее за 30 дней с поправкой на свежий тренд последних 10 дней.</p>
+          </div>
+          <div class="p-4">
+            <div class="font-medium text-ink-primary text-sm">Дни до нуля (покрытие)</div>
+            <p class="text-sm text-ink-muted mt-0.5 leading-relaxed">На сколько хватит текущего остатка: <span class="font-mono text-ink-secondary">факт ÷ (продажи_30д ÷ 30)</span>. Именно по этой цифре ставится статус-светофор.</p>
+          </div>
+          <div class="p-4">
+            <div class="font-medium text-ink-primary text-sm">ABC-категория</div>
+            <p class="text-sm text-ink-muted mt-0.5 leading-relaxed">
+              Важность товара по правилу Парето. Считается дважды — по выручке и по штукам. Топ-товары, дающие первые 80% — это <span class="text-green-400">A</span>, следующие до 95% — <span class="text-yellow-400">B</span>, остальные — <span class="text-ink-secondary">C</span>. В расчёте берётся <span class="text-ink-secondary">сильнейшая</span> из двух категорий.
+            </p>
+          </div>
+          <div class="p-4">
+            <div class="font-medium text-ink-primary text-sm">Оборачиваемость / IDC Ozon</div>
+            <p class="text-sm text-ink-muted mt-0.5 leading-relaxed">Оценка Ozon, хватает ли товара на складах (RED/YELLOW/GREEN). Используется как множитель целевого запаса и как «пол» спроса.</p>
+          </div>
+          <div class="p-4">
+            <div class="font-medium text-ink-primary text-sm">Факт и «в пути»</div>
+            <p class="text-sm text-ink-muted mt-0.5 leading-relaxed">Факт — свободный остаток на складах Ozon сейчас. «В пути» — то, что уже едет или зарезервировано. Оба вычитаются из рекомендации, чтобы не везти лишнего.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ⑤ Разделы меню -->
+      <section id="menu" class="scroll-mt-6">
+        <h2 class="text-base font-semibold text-ink-primary flex items-center gap-2">
+          <span class="text-blue-400">⑤</span> Разделы меню
+        </h2>
+        <div class="mt-4 space-y-3">
+          <div class="bg-surface-1 border border-surface-2 rounded-xl p-4 flex gap-4">
+            <div class="w-9 h-9 rounded-lg bg-blue-500/10 flex items-center justify-center flex-shrink-0">
+              <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+            </div>
+            <div>
+              <div class="font-semibold text-ink-primary text-sm">Что грузить</div>
+              <p class="text-sm text-ink-muted mt-1 leading-relaxed">Главный экран. Таблица всех товаров: статус, ABC, остаток, спрос в день, дни до нуля и готовая рекомендация «сколько везти» (сумма по всем регионам). С неё начинаешь день.</p>
+            </div>
+          </div>
+          <div class="bg-surface-1 border border-surface-2 rounded-xl p-4 flex gap-4">
+            <div class="w-9 h-9 rounded-lg bg-blue-500/10 flex items-center justify-center flex-shrink-0">
+              <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/></svg>
+            </div>
+            <div>
+              <div class="font-semibold text-ink-primary text-sm">Кластеры</div>
+              <p class="text-sm text-ink-muted mt-1 leading-relaxed">Та же рекомендация, но в разрезе регионов Ozon: где товар продаётся и где его на складе не осталось. Тут же настройки кластеров — включить/выключить регион, время поставки, резервный кластер, наценка Ozon за нелокальность.</p>
+            </div>
+          </div>
+          <div class="bg-surface-1 border border-surface-2 rounded-xl p-4 flex gap-4">
+            <div class="w-9 h-9 rounded-lg bg-blue-500/10 flex items-center justify-center flex-shrink-0">
+              <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            </div>
+            <div>
+              <div class="font-semibold text-ink-primary text-sm">Слот-хантер</div>
+              <p class="text-sm text-ink-muted mt-1 leading-relaxed">Последний шаг. Когда решил, что и сколько везти, и создал заявку на поставку в Ozon — слот-хантер фоном ловит свободный слот приёмки в нужном окне и не даёт всё занять конкурентам.</p>
+            </div>
+          </div>
+          <div class="bg-surface-1 border border-surface-2 rounded-xl p-4 flex gap-4">
+            <div class="w-9 h-9 rounded-lg bg-surface-2 flex items-center justify-center flex-shrink-0">
+              <svg class="w-4 h-4 text-ink-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+            </div>
+            <div>
+              <div class="font-semibold text-ink-primary text-sm">Настройки</div>
+              <p class="text-sm text-ink-muted mt-1 leading-relaxed">Ключи Ozon Seller API и кнопка «Обновить данные». Ключи хранятся только у тебя на компьютере, в твоём файле, и никуда не уходят кроме официального API Ozon.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ⑥ Взаимосвязи -->
+      <section id="links" class="scroll-mt-6">
+        <h2 class="text-base font-semibold text-ink-primary flex items-center gap-2">
+          <span class="text-blue-400">⑥</span> Как всё связано
+        </h2>
+        <p class="text-ink-muted text-sm mt-2 mb-5">Одна цепочка: каждый показатель кормит следующий.</p>
+
+        <div class="bg-surface-1 border border-surface-2 rounded-xl p-5">
+          <div class="flex flex-wrap items-center gap-2 text-xs font-medium">
+            <span class="px-2.5 py-1.5 rounded-lg bg-surface-2 text-ink-secondary">Продажи 30 / 10 дней</span>
+            <span class="text-ink-muted">→</span>
+            <span class="px-2.5 py-1.5 rounded-lg bg-surface-2 text-ink-secondary">Спрос в день</span>
+            <span class="text-ink-muted">+</span>
+            <span class="px-2.5 py-1.5 rounded-lg bg-surface-2 text-ink-secondary">ABC + IDC Ozon</span>
+            <span class="text-ink-muted">→</span>
+            <span class="px-2.5 py-1.5 rounded-lg bg-blue-500/15 text-blue-400">Целевой запас</span>
+            <span class="text-ink-muted">−</span>
+            <span class="px-2.5 py-1.5 rounded-lg bg-surface-2 text-ink-secondary">Факт + в пути</span>
+            <span class="text-ink-muted">→</span>
+            <span class="px-2.5 py-1.5 rounded-lg bg-blue-600 text-white">Рекомендация</span>
+            <span class="text-ink-muted">→</span>
+            <span class="px-2.5 py-1.5 rounded-lg bg-surface-2 text-ink-secondary">Статус-светофор</span>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
+          <div class="bg-surface-1 border border-surface-2 rounded-xl p-4">
+            <div class="text-sm font-medium text-ink-primary mb-1">Что грузить ↔ Кластеры</div>
+            <p class="text-xs text-ink-muted leading-relaxed">Цифра «к отгрузке» в «Что грузить» — это сумма рекомендаций по всем регионам. В «Кластерах» та же рекомендация разложена по регионам: куда именно везти.</p>
+          </div>
+          <div class="bg-surface-1 border border-surface-2 rounded-xl p-4">
+            <div class="text-sm font-medium text-ink-primary mb-1">Кластеры ↔ Слот-хантер</div>
+            <p class="text-xs text-ink-muted leading-relaxed">Решил по «Кластерам», в какой регион и сколько → создал заявку в Ozon → «Слот-хантер» ловит слот приёмки на этот регион.</p>
+          </div>
+          <div class="bg-surface-1 border border-surface-2 rounded-xl p-4">
+            <div class="text-sm font-medium text-ink-primary mb-1">Настройки кластеров → Расчёт</div>
+            <p class="text-xs text-ink-muted leading-relaxed">Отключишь регион — его спрос уходит в резервный кластер, и рекомендации пересчитываются без него. Так не везёшь туда, куда сдавать неудобно.</p>
+          </div>
+          <div class="bg-surface-1 border border-surface-2 rounded-xl p-4">
+            <div class="text-sm font-medium text-ink-primary mb-1">Обновление данных → Всё остальное</div>
+            <p class="text-xs text-ink-muted leading-relaxed">Любые цифры — это срез на дату последней синхронизации. Жмёшь «Обновить данные» — пересчитывается вся цепочка разом.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Footer note -->
+      <section class="pb-4">
+        <div class="bg-surface-1 border border-surface-2 rounded-xl p-4 text-xs text-ink-muted leading-relaxed">
+          Программа считает, показывает и подсказывает — но решение за тобой. Ты знаешь свой товар лучше: сезонность, акции, закуп.
+          Используй рекомендацию как сильную отправную точку, а не как автопилот.
+        </div>
+      </section>
+
+    </div>
+  </div>
+
+</div>
+{% endblock %}
