@@ -122,10 +122,15 @@ def update_job_status(
     found_slot_to: str | None = None,
 ) -> None:
     now = datetime.utcnow().isoformat()
+    # COALESCE, not a plain assignment: callers that only change the status (pause, resume,
+    # stop) pass no slot and would otherwise erase the slot the hunter had already found.
     conn.execute(
         """
         UPDATE slot_hunter_jobs
-           SET status = ?, found_slot_from = ?, found_slot_to = ?, updated_at = ?
+           SET status = ?,
+               found_slot_from = COALESCE(?, found_slot_from),
+               found_slot_to   = COALESCE(?, found_slot_to),
+               updated_at = ?
          WHERE id = ?
         """,
         (status, found_slot_from, found_slot_to, now, job_id),

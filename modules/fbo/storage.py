@@ -6,12 +6,15 @@ Reads from analytics.db for product catalog and daily stock/sales data.
 
 from __future__ import annotations
 
+import logging
 import os
 import sqlite3
 from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -193,11 +196,11 @@ _MIGRATIONS: list[str] = [
 # Used when a cluster is disabled — demand redistributes to the first active cluster in the list.
 _CLUSTER_NEAREST: dict[str, list[str]] = {
     "Москва, МО и Дальние регионы": ["Тверь", "Ярославль", "Воронеж"],
-    "Тверь": ["Москва, МО и Дальние регионы", "СПБ (СЗО)", "Ярославль"],
+    "Тверь": ["Москва, МО и Дальние регионы", "Санкт-Петербург и СЗО", "Ярославль"],
     "Ярославль": ["Москва, МО и Дальние регионы", "Тверь", "Воронеж"],
     "Воронеж": ["Москва, МО и Дальние регионы", "Саратов", "Ростов"],
-    "СПБ (СЗО)": ["Тверь", "Москва, МО и Дальние регионы", "Калининград"],
-    "Калининград": ["СПБ (СЗО)", "Беларусь", "Тверь"],
+    "Санкт-Петербург и СЗО": ["Тверь", "Москва, МО и Дальние регионы", "Калининград"],
+    "Калининград": ["Санкт-Петербург и СЗО", "Беларусь", "Тверь"],
     "Казань": ["Уфа", "Самара", "Ярославль"],
     "Самара": ["Саратов", "Казань", "Оренбург"],
     "Саратов": ["Самара", "Воронеж", "Казань"],
@@ -211,11 +214,10 @@ _CLUSTER_NEAREST: dict[str, list[str]] = {
     "Красноярск": ["Новосибирск", "Дальний Восток", "Омск"],
     "Дальний Восток": ["Красноярск", "Новосибирск", "Омск"],
     "Ростов": ["Краснодар", "Воронеж", "Невинномысск"],
-    "Краснодар": ["Ростов", "Кубань", "Невинномысск"],
-    "Кубань": ["Краснодар", "Ростов", "Невинномысск"],
+    "Краснодар": ["Ростов", "Невинномысск", "Воронеж"],
     "Невинномысск": ["Краснодар", "Ростов", "Махачкала"],
     "Махачкала": ["Невинномысск", "Астана", "Ростов"],
-    "Беларусь": ["СПБ (СЗО)", "Тверь", "Москва, МО и Дальние регионы"],
+    "Беларусь": ["Санкт-Петербург и СЗО", "Тверь", "Москва, МО и Дальние регионы"],
     "Астана": ["Омск", "Екатеринбург", "Новосибирск"],
     "Алматы": ["Астана", "Новосибирск", "Омск"],
     "Кыргызстан": ["Алматы", "Астана", "Новосибирск"],
@@ -227,12 +229,11 @@ _CLUSTER_NEAREST: dict[str, list[str]] = {
 # Surcharge % added by Ozon for non-local FBO fulfillment (effective 06.05.2026)
 _CLUSTER_SURCHARGE: dict[str, int] = {
     "Москва, МО и Дальние регионы": 8,
-    "СПБ (СЗО)": 8,
+    "Санкт-Петербург и СЗО": 8,
     "Екатеринбург": 8,
     "Казань": 8,
     "Уфа": 8,
     "Краснодар": 8,
-    "Кубань": 8,
     "Воронеж": 8,
     "Тюмень": 8,
     "Дальний Восток": 8,
@@ -316,14 +317,20 @@ def init_fbo_db(conn: sqlite3.Connection) -> None:
 
 def _run_migrations(conn) -> None:
     for sql in _MIGRATIONS:
-        if hasattr(conn, "execute_ddl"):
-            conn.execute_ddl(sql)
-        else:
-            try:
-                conn.execute(sql)
-                conn.commit()
-            except sqlite3.OperationalError:
-                pass
+        try:
+            conn.execute(sql)
+            conn.commit()
+        except sqlite3.OperationalError as e:
+            # Норма для уже применённой миграции: «duplicate column» (ADD COLUMN повторно),
+            # «already exists» и «no such column» (RENAME COLUMN, чей исходный столбец давно
+            # переименован — на свежей БД его не было вовсе). Остальное — реальный сбой:
+            # его надо видеть, а не глушить, иначе на чужой машине со старой data/fbo.db
+            # поломанная миграция молча ломает расчёты.
+            msg = str(e).lower()
+            if not any(
+                ok in msg for ok in ("duplicate column", "already exists", "no such column")
+            ):
+                logger.warning("[fbo] migration failed: %s — %s", sql[:80], e)
 
 
 # ── Read helpers ──────────────────────────────────────────────────────────────
@@ -453,12 +460,23 @@ def upsert_sku_settings(
     conn.commit()
 
 
-def _find_nearest_active(cluster: str, active_names: set[str]) -> str | None:
-    """Return nearest active cluster for redistribution, or None."""
+def _find_nearest_active(
+    cluster: str, active_names: set[str], ranked: list[str] | None = None
+) -> str | None:
+    """Return nearest active cluster for redistribution, or None.
+
+    The last-resort branch used to be `next(iter(active_names))` — an arbitrary pick from a
+    set, so demand from an unknown cluster landed in a different region on every call.
+    Now it falls back to the biggest active cluster (`ranked` is ordered by sales), which is
+    both deterministic and the sane place to send orphaned demand.
+    """
     for candidate in _CLUSTER_NEAREST.get(cluster, []):
         if candidate in active_names:
             return candidate
-    return next(iter(active_names)) if active_names else None
+    for candidate in ranked or sorted(active_names):
+        if candidate in active_names:
+            return candidate
+    return None
 
 
 def _apply_redistribution(clusters: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -471,16 +489,31 @@ def _apply_redistribution(clusters: list[dict[str, Any]]) -> list[dict[str, Any]
     }
     active_names = set(active_map)
 
+    # Active clusters ordered by sales — the tie-breaker for demand that has nowhere else to go.
+    # Callers differ in which sales column they carry (get_sku_detail selects qty_28d, the
+    # cluster list carries qty_30d), so rank on whichever is present.
+    def _sales_of(c: dict[str, Any]) -> float:
+        return float(c.get("qty_30d") or c.get("qty_28d") or 0)
+
+    ranked = [
+        c["cluster_name"]
+        for c in sorted(clusters, key=lambda x: -_sales_of(x))
+        if c["cluster_name"] in active_names
+    ]
+
     for c in clusters:
         if c.get("is_active", 1):
             continue  # skip active ones
         rec = c.get("recommendation", 0)
         if rec <= 0:
             continue  # nothing to redistribute
-        # Check if manual fallback set in cluster settings (via fallback_cluster field)
-        fallback = c.get("fallback_cluster") or _find_nearest_active(
-            c["cluster_name"], active_names
-        )
+        # Manual fallback from cluster settings, but only if it is itself active: a manual
+        # fallback pointing at a disabled cluster used to swallow the demand silently
+        # (`or` short-circuits, and the `if fallback in active_map` below had no else),
+        # so the units vanished from the report instead of moving somewhere real.
+        fallback = c.get("fallback_cluster")
+        if not fallback or fallback not in active_map:
+            fallback = _find_nearest_active(c["cluster_name"], active_names, ranked)
         if fallback and fallback in active_map:
             active_map[fallback]["recommendation"] += rec
             active_map[fallback]["merged_from"].append(

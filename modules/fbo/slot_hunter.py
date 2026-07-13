@@ -13,7 +13,7 @@ import logging
 import os
 import threading
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import requests
@@ -195,16 +195,27 @@ def list_supply_orders(states: list[str] | None = None, limit: int = 100) -> lis
 
 
 def _parse_dt(s: str) -> datetime | None:
-    """Parse ISO-like datetime string from Ozon API."""
-    for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S.%f"):
-        try:
-            return datetime.strptime(s[:19], fmt[: len(s[:19])])
-        except ValueError:
-            continue
-    try:
-        return datetime.fromisoformat(s[:19])
-    except ValueError:
+    """Parse an ISO datetime from the Ozon API into a timezone-aware value.
+
+    Ozon reports slots in UTC ("2026-07-14T08:00:00Z"). The old parser sliced the string to
+    19 chars, dropping the "Z", and returned a naive datetime that was then compared against
+    the local time the user typed into the form — so an 08:00 UTC slot looked like 08:00 local
+    and the hunter matched the wrong slot (or skipped the right one). Always return an aware
+    datetime; callers convert to local time before comparing.
+    """
+    if not s:
         return None
+    raw = s.strip().replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(raw)
+    except ValueError:
+        try:
+            dt = datetime.strptime(s[:19], "%Y-%m-%dT%H:%M:%S")
+        except ValueError:
+            return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)  # Ozon timestamps without an offset are UTC
+    return dt
 
 
 def find_matching_slot(
@@ -225,7 +236,7 @@ def find_matching_slot(
       - slot.to   time  <= target_time_to
       - at least 1 hour remains before slot.from (Ozon deadline rule)
     """
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
     date_from = datetime.strptime(target_date_from, "%Y-%m-%d").date()
     date_to = datetime.strptime(target_date_to, "%Y-%m-%d").date()
     time_from_h, time_from_m = map(int, target_time_from.split(":"))
@@ -236,17 +247,22 @@ def find_matching_slot(
         dt_to = _parse_dt(slot.get("to", ""))
         if not dt_from or not dt_to:
             continue
+        # Ozon reports slots in UTC; the user picked the date and the hours in their own
+        # local time, so compare in local time. Without this a 08:00–12:00 window in
+        # Yekaterinburg (UTC+5) silently matched the 08:00 UTC slot — 13:00 local.
+        local_from = dt_from.astimezone()
+        local_to = dt_to.astimezone()
         # Date range check
-        if not (date_from <= dt_from.date() <= date_to):
+        if not (date_from <= local_from.date() <= date_to):
             continue
         # Time window check
-        slot_from_minutes = dt_from.hour * 60 + dt_from.minute
-        slot_to_minutes = dt_to.hour * 60 + dt_to.minute
+        slot_from_minutes = local_from.hour * 60 + local_from.minute
+        slot_to_minutes = local_to.hour * 60 + local_to.minute
         target_from_minutes = time_from_h * 60 + time_from_m
         target_to_minutes = time_to_h * 60 + time_to_m
         if slot_from_minutes < target_from_minutes or slot_to_minutes > target_to_minutes:
             continue
-        # Ozon deadline: must be > 1 hour before slot start (use UTC as approximation)
+        # Ozon deadline: must be > 1 hour before slot start
         if (dt_from - now).total_seconds() < 3600:
             continue
         return slot
@@ -308,13 +324,36 @@ class SlotHunterScheduler:
             time.sleep(_TICK_SEC)
 
     def _tick(self) -> None:
-        from modules.fbo.slot_storage import get_active_jobs, get_slot_connection
+        from modules.fbo.slot_storage import (
+            add_event,
+            get_active_jobs,
+            get_slot_connection,
+            update_job_status,
+        )
 
         conn = get_slot_connection()
         try:
             jobs = get_active_jobs(conn)
         finally:
             conn.close()
+
+        # Retire jobs whose date window has already passed: they can never match a slot, but
+        # stayed 'active' and kept polling Ozon every interval forever, burning the API limit
+        # shared with the sync.
+        today_local = datetime.now().astimezone().date().isoformat()
+        still_active = []
+        for job in jobs:
+            if (job.get("target_date_to") or "") < today_local:
+                conn = get_slot_connection()
+                try:
+                    update_job_status(conn, job["id"], "stopped")
+                    add_event(conn, job["id"], "stopped", message="Окно дат истекло — охота остановлена")
+                finally:
+                    conn.close()
+                logger.info("[slot_hunter] job %s expired (window until %s)", job["id"], job.get("target_date_to"))
+                continue
+            still_active.append(job)
+        jobs = still_active
 
         now = time.monotonic()
         for job in jobs:

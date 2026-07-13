@@ -13,6 +13,7 @@ Run: python -m modules.fbo.sync
 from __future__ import annotations
 
 import logging
+import re
 import sqlite3
 import time
 from collections.abc import Iterator
@@ -68,13 +69,15 @@ def _track_step(fbo: sqlite3.Connection, step: str) -> Iterator[dict[str, Any]]:
         )
 
 
-# Fallback cluster inference from warehouse name (when /v1/cluster/list is missing warehouse)
+# Fallback cluster inference from warehouse name (when /v1/cluster/list is missing warehouse).
+# Cluster names here MUST match Ozon's own taxonomy (the values of _LATIN_TO_RU below) — a name
+# that exists only here would never line up with the clusters that postings and cluster/list
+# report, and the same SKU would land in two different clusters for stock and for sales.
 _CLUSTER_KEYWORDS: list[tuple[list[str], str]] = [
     (
         [
             "москва",
             "мо ",
-            "московск",
             "хоругвино",
             "домодедово",
             "подольск",
@@ -83,8 +86,12 @@ _CLUSTER_KEYWORDS: list[tuple[list[str], str]] = [
             "электросталь",
             "ногинск",
             "пушкино",
-            "тверск",
-            "тверь",
+            "жуковский",
+            "раменское",
+            "софьино",
+            "чехов",
+            "внуково",
+            "коледино",
         ],
         "Москва, МО и Дальние регионы",
     ),
@@ -93,48 +100,88 @@ _CLUSTER_KEYWORDS: list[tuple[list[str], str]] = [
             "санкт-петербург",
             "санкт петербург",
             "спб",
-            "спб ",
-            "питер",
-            "ленингр",
+            "шушары",
+            "колпино",
+            "бугры",
+            "волхонское",  # Волхонское шоссе, Ленобласть
+            "московское",  # Московское шоссе — это Петербург, а не Москва
+            "лиговский",
+            "красное село",
+            "троицкий",
+            "уткина заводь",
             "мурманск",
             "архангельск",
-            "карелия",
-            "коми",
-            "выборг",
-            "сортавала",
-            "шушары",
-            "тосно",
-            "федоровск",
-            "ручьи",
-            "горелово",
-            "парнас",
-            "бугры",
-            "мурино",
-            "кудрово",
-            "девяткино",
-            "колпино",
-            "гатчина",
-            "всеволожск",
-            "тихвин",
+            "сыктывкар",
+            "петрозаводск",
         ],
         "Санкт-Петербург и СЗО",
     ),
-    (["екатеринбург", "екб", "уральск", "свердловск", "челябинск", "тюмень"], "Екатеринбург"),
-    (["новосибирск", "нск", "сибирь"], "Новосибирск"),
-    (["ростов", "краснодар", "кубань"], "Ростов"),
-    (["уфа", "башкир", "оренбург"], "Уфа"),
-    (["самар", "самарск"], "Самара"),
+    (
+        [
+            "екатеринбург",
+            "екб",
+            "уральск",  # «…_УРАЛЬСКАЯ»; проигрывает более длинному ключу другого кластера
+            "первоуральск",
+            "свердловск",
+            "челябинск",
+            "березовский",
+        ],
+        "Екатеринбург",
+    ),
+    (["новосибирск", "нск", "нсб", "сибирь", "толмачево", "кемерово", "томск"], "Новосибирск"),
+    (["ростов", "аксай", "батайск", "новочеркасск"], "Ростов"),
+    (
+        [
+            "краснодар",
+            "кубань",
+            "новороссийск",
+            "тимашевск",
+            "адыгейск",
+            "старобжегокай",
+            "южный обход",
+            "медиа плаза",
+            "крд",
+        ],
+        "Краснодар",
+    ),
+    (["уфа", "башкир", "стерлитамак", "октябрьский", "нефтекамск"], "Уфа"),
+    (["оренбург"], "Оренбург"),
+    (["тюмень", "тюменск"], "Тюмень"),
+    (["тверь", "тверск", "боровлево"], "Тверь"),
+    (["ярославль", "ярославск", "кострома"], "Ярославль"),
+    (["самар", "самарск", "тольятти", "чапаевск"], "Самара"),
     (["пермь", "пермск"], "Пермь"),
-    (["саратов", "саратовск"], "Саратов"),
-    (["казань", "татарст"], "Казань"),
+    (
+        ["саратов", "саратовск", "энгельс", "волгоград", "волжский", "средняя ахтуба"],
+        "Саратов",
+    ),
+    (
+        [
+            "казань",
+            "кзн",
+            "татарст",
+            "зеленодольск",
+            "столбище",
+            "нижний новгород",
+            "нижний-новгород",
+            "нино",  # так Ozon сокращает Нижний Новгород в именах складов
+            "иннополис",
+            "дзержинск",  # Дзержинск Нижегородской обл. — у Ozon это кластер Казань
+        ],
+        "Казань",
+    ),
     (["воронеж"], "Воронеж"),
     (["красноярск", "красноярский"], "Красноярск"),
     (["омск"], "Омск"),
-    (["дальн", "владивосток", "хабаровск", "иркутск", "якутск", "сахалин"], "Дальний Восток"),
+    (
+        ["дальн", "владивосток", "хабаровск", "иркутск", "якутск", "сахалин", "чита", "улан-удэ"],
+        "Дальний Восток",
+    ),
     (["беларус", "минск", "беларуск"], "Беларусь"),
-    (["махачкал", "дагест", "невинномысск", "ставрополь"], "Махачкала"),
+    (["невинномысск", "ставрополь"], "Невинномысск"),
+    (["махачкал", "дагест", "грозный", "владикавказ"], "Махачкала"),
     (["калининград"], "Калининград"),
-    (["астана", "казахст"], "Астана"),
+    (["астана", "нур-султан"], "Астана"),
     (["алматы", "алма-аты"], "Алматы"),
     (["кыргыз", "бишкек"], "Кыргызстан"),
     (["узбекист", "ташкент"], "Узбекистан"),
@@ -185,6 +232,12 @@ _LATIN_TO_RU: dict[str, str] = {
 }
 
 
+def _cluster_key(name: str) -> str:
+    """Key for tolerant comparison: Ozon writes "Kazan`" / "Perm`" with a trailing backtick,
+    and a rename or a missing backtick must not turn a known cluster into an unknown one."""
+    return name.lower().replace("`", "").replace("'", "").strip()
+
+
 def normalize_cluster_name(raw: str) -> str:
     """Map any cluster name (Latin or Cyrillic) to our canonical Russian name."""
     if not raw:
@@ -197,9 +250,26 @@ def normalize_cluster_name(raw: str) -> str:
     known_ru = set(_LATIN_TO_RU.values())
     if raw in known_ru:
         return raw
+    # Tolerant match: backtick/case differences ("Kazan" vs "Kazan`") must not fall through
+    # to inference, whose keywords are Cyrillic-only and would silently answer «Москва».
+    key = _cluster_key(raw)
+    for latin, ru in _LATIN_TO_RU.items():
+        if _cluster_key(latin) == key:
+            return ru
+    for ru in known_ru:
+        if _cluster_key(ru) == key:
+            return ru
     # Fuzzy: try keyword inference on the raw value
-    inferred = infer_cluster(raw)
-    return inferred
+    lower = raw.lower().replace("_", " ")
+    for keywords, cluster in _CLUSTER_KEYWORDS:
+        for kw in keywords:
+            if re.search(r"\b" + re.escape(kw), lower):
+                return cluster
+    # Unknown cluster (Ozon added or renamed one). Returning _DEFAULT_CLUSTER here would
+    # silently pour its sales into Москва and erase the region from the report entirely —
+    # the same class of silent misattribution as the МИНСК bug. Keep it as its own row.
+    logger.warning("[fbo/sync] unknown cluster name from Ozon: %r — kept as-is", raw)
+    return raw
 
 
 def infer_cluster(warehouse_name: str) -> str:
@@ -208,15 +278,32 @@ def infer_cluster(warehouse_name: str) -> str:
     Warehouse names from Ozon may use underscores as word separators
     (e.g. "Санкт_Петербург_РФЦ"). Normalize to spaces so keyword matching
     works correctly with hyphenated and space-separated keywords alike.
+
+    Matching is anchored to a word boundary (\b) at the start of each keyword,
+    so a short abbreviation never matches inside an unrelated word. Without this,
+    "нск" (Новосибирск) matched as a substring of "минск" and the whole
+    Belarus (Минск) FBO stock was silently misassigned to the Новосибирск cluster.
+
+    Among all matching keywords the LONGEST one wins, so correctness does not depend
+    on the order of the rules: "НОВОСИБИРСК_ОМСКИЙ_ТРАКТ" resolves by "новосибирск"
+    rather than "омск", and "КРАСНОДАР_СППЗ_УРАЛЬСКАЯ" by "краснодар" over "уральск".
     """
     # Normalise: underscores → space, keep hyphens for keyword matching
     lower = warehouse_name.lower().replace("_", " ")
-    # Also check original (without normalization) for short codes like "спб"
-    lower_orig = warehouse_name.lower()
+    best_kw = ""
+    best_cluster = ""
     for keywords, cluster in _CLUSTER_KEYWORDS:
-        if any(kw in lower or kw in lower_orig for kw in keywords):
-            return cluster
-    return _DEFAULT_CLUSTER
+        for kw in keywords:
+            if len(kw) > len(best_kw) and re.search(r"\b" + re.escape(kw), lower):
+                best_kw, best_cluster = kw, cluster
+    if not best_cluster:
+        # Silent fallback to Москва is how МИНСК-class errors hide: log it so an unknown
+        # warehouse is visible in the log instead of quietly inflating the default cluster.
+        logger.warning(
+            "[fbo/sync] cluster not inferred for warehouse %r → %s", warehouse_name, _DEFAULT_CLUSTER
+        )
+        return _DEFAULT_CLUSTER
+    return best_cluster
 
 
 def sync_cluster_map(
@@ -253,7 +340,43 @@ def sync_cluster_map(
             rows,
         )
 
+    heal_inferred_clusters(fbo)
+
     return mapping
+
+
+def heal_inferred_clusters(fbo: sqlite3.Connection) -> list[tuple[str, str, str]]:
+    """Re-run inference over cached 'inferred' rows and fix the ones that changed.
+
+    Rows are cached in fbo_warehouse_cluster_map, and _get_cluster prefers the cache
+    over a fresh inference — so a cluster mis-inferred by an older version of
+    infer_cluster would stay wrong forever, even after the inference logic is fixed.
+    Re-inferring on every sync makes the fix reach existing installs without asking
+    the user to run a repair script. Rows with source='api' come from Ozon and are
+    authoritative — never touched here.
+
+    Returns [(warehouse_name, old_cluster, new_cluster)] for the rows that changed.
+    """
+    rows = fbo.execute(
+        "SELECT warehouse_name, cluster_name FROM fbo_warehouse_cluster_map WHERE source = 'inferred'"
+    ).fetchall()
+
+    changed = [
+        (r["warehouse_name"], r["cluster_name"], infer_cluster(r["warehouse_name"]))
+        for r in rows
+    ]
+    changed = [(w, old, new) for (w, old, new) in changed if old != new]
+    if not changed:
+        return []
+
+    with fbo:
+        fbo.executemany(
+            "UPDATE fbo_warehouse_cluster_map SET cluster_name = ? WHERE warehouse_name = ?",
+            [(new, w) for (w, _old, new) in changed],
+        )
+    for w, old, new in changed:
+        logger.info("[fbo/sync] healed warehouse cluster: %s: %s -> %s", w, old, new)
+    return changed
 
 
 def _get_cluster(
@@ -328,6 +451,12 @@ def sync_stock_by_cluster(
     ]
 
     with fbo:
+        # Rebuild today's snapshot from scratch. An upsert alone would leave behind rows
+        # written under a warehouse's previous cluster (e.g. МИНСК_МПСЦ moving from
+        # Новосибирск to Беларусь), double-counting the same stock in both clusters.
+        # Guarded by `if cluster_rows` so an empty source never wipes a good snapshot.
+        if cluster_rows:
+            fbo.execute("DELETE FROM fbo_stock_cluster WHERE snapshot_date = ?", (today,))
         fbo.executemany(
             """
             INSERT INTO fbo_stock_cluster (sku, cluster_name, snapshot_date, fact_stock, in_transit, reserved)
@@ -453,6 +582,13 @@ def sync_sales_by_cluster(
     ]
 
     with fbo:
+        # Same reason as fbo_stock_cluster: rebuild today's rows so a cluster that a SKU no longer
+        # belongs to cannot linger from a previous run. But ONLY when the numbers came from the
+        # postings API — that is the real per-cluster demand. If postings failed (Ozon 429) we are
+        # holding the crude fallback (sales split by stock share); wiping the snapshot would throw
+        # away a good morning sync and replace it with the guess. Then upsert only, as before.
+        if sales_rows_db and postings:
+            fbo.execute("DELETE FROM fbo_sales_cluster WHERE snapshot_date = ?", (today,))
         fbo.executemany(
             """
             INSERT INTO fbo_sales_cluster

@@ -910,13 +910,19 @@ def init_db(conn) -> None:
 def _run_migrations(conn) -> None:
     """Apply ALTER TABLE migrations safely (ignore 'duplicate column' errors)."""
     for sql in _MIGRATIONS:
-        if hasattr(conn, "execute_ddl"):
-            conn.execute_ddl(sql)
-        else:
-            try:
-                conn.execute(sql)
-            except Exception:
-                pass  # column already exists
+        try:
+            conn.execute(sql)
+        except sqlite3.OperationalError as e:
+            # Норма для уже применённой миграции: «duplicate column», «already exists»,
+            # «no such column» (RENAME COLUMN, чей исходный столбец уже переименован).
+            # Любая другая OperationalError (битый SQL, нет таблицы) — реальный сбой;
+            # раньше его глушил `except Exception: pass`, и на чужой машине со старой
+            # data/analytics.db поломанная миграция проходила незамеченной.
+            msg = str(e).lower()
+            if not any(
+                ok in msg for ok in ("duplicate column", "already exists", "no such column")
+            ):
+                logger.warning("migration failed: %s — %s", sql[:80], e)
     conn.commit()
 
 

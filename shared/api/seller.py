@@ -246,6 +246,13 @@ class SellerClient:
                 continue
             assert r is not None
 
+            # Retries exhausted on 429: the loop falls through here with the error response
+            # still in `r`. Parsing it yields no "result", rows == [] and the loop below would
+            # `break` — silently returning a truncated report as if it were complete. Fail loudly
+            # instead, so the sync step goes red and the user knows the data is short.
+            if r.status_code != 200:
+                r.raise_for_status()
+
             page_num = offset // 1000 + 1
             data = r.json()
             rows = (data.get("result") or {}).get("data") or []
@@ -437,8 +444,11 @@ class SellerClient:
         Allows separating FBO from each FBS warehouse (e.g. "Студенческий" vs "Офис").
         """
         out: dict[str, list[dict[str, Any]]] = {}
-        for i in range(0, len(offer_ids), 200):
-            chunk = offer_ids[i : i + 200]
+        # Chunk of 1000 (the API's own page limit), not 200: at 200 a catalogue of several
+        # thousand SKUs meant five times more round-trips, each one throttled and each one
+        # another chance to hit Ozon's rate limit. Cursor pagination inside a chunk still works.
+        for i in range(0, len(offer_ids), 1000):
+            chunk = offer_ids[i : i + 1000]
             cursor = ""
             for _page in range(50):  # не более 50 страниц на чанк (защита от бесконечного цикла)
                 body: dict[str, Any] = {

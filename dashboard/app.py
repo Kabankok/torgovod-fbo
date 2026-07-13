@@ -15,6 +15,7 @@ import os
 import threading as _threading
 from contextlib import asynccontextmanager
 from pathlib import Path
+from types import EllipsisType
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
@@ -392,12 +393,22 @@ class FboClusterSettingsBody(BaseModel):
 async def api_fbo_cluster_settings(request: Request, cluster_name: str, body: FboClusterSettingsBody):
     conn = get_fbo_connection(company_id=_fbo_company_id(request))
     try:
+        # Distinguish "field not sent" from "field sent as null". Passing None for an absent
+        # field wiped the manually chosen fallback cluster on every unrelated edit (toggling
+        # the cluster on/off, changing lead time). Ellipsis = leave the stored value alone.
+        if body.clear_fallback:
+            fallback: str | None | EllipsisType = None
+        elif "fallback_cluster" in body.model_fields_set:
+            fallback = body.fallback_cluster
+        else:
+            fallback = ...
+
         fbo_upsert_cluster(
             conn,
             cluster_name,
             is_active=body.is_active,
             lead_time_days=body.lead_time_days,
-            fallback_cluster=None if body.clear_fallback else body.fallback_cluster,
+            fallback_cluster=fallback,
             priority=body.priority,
         )
     finally:
@@ -414,7 +425,10 @@ async def fbo_slot_hunter_page(request: Request):
 
 
 @app.get("/api/fbo/slot-hunter/supply-orders")
-async def api_slot_hunter_supply_orders(q: str = "", states: str = ""):
+def api_slot_hunter_supply_orders(q: str = "", states: str = ""):
+    # Deliberately NOT async: _slot_list_orders does blocking HTTP to Ozon (seconds, plus
+    # request throttling). In an async route that runs on the event loop and freezes every
+    # other page until it returns. A sync handler is dispatched to FastAPI's threadpool.
     try:
         state_list = [s.strip() for s in states.split(",") if s.strip()] if states else None
         orders = _slot_list_orders(states=state_list)

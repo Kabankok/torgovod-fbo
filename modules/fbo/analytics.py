@@ -90,6 +90,24 @@ def compute_all(
     """Run full analytics computation for today's snapshot."""
     logger.info("[fbo/analytics] Computing ABC and recommendations...")
 
+    # Which snapshot do we read stock from? Normally today's. But if the stock step failed
+    # (Ozon down, network, rate limit), sync_all logs the error and calls compute_all anyway —
+    # and reading today's empty snapshot would silently rewrite every SKU with fact_stock = 0,
+    # i.e. "you have nothing anywhere, ship everything". Fall back to the last real snapshot:
+    # slightly stale numbers, honestly dated in the UI, instead of confidently wrong zeros.
+    stock_date = today
+    if not fbo.execute(
+        "SELECT 1 FROM fbo_stock_cluster WHERE snapshot_date = ? LIMIT 1", (today,)
+    ).fetchone():
+        row = fbo.execute("SELECT MAX(snapshot_date) FROM fbo_stock_cluster").fetchone()
+        if row and row[0]:
+            stock_date = row[0]
+            logger.warning(
+                "[fbo/analytics] no stock snapshot for %s — falling back to %s", today, stock_date
+            )
+        else:
+            logger.warning("[fbo/analytics] no stock snapshot at all — stock treated as empty")
+
     # ── 1. Load products from analytics.db ──────────────────────────────────
     products: dict[str, dict[str, str]] = {}
     for row in analytics.execute("SELECT sku, offer_id, name FROM products"):
@@ -164,7 +182,7 @@ def compute_all(
         WHERE snapshot_date = ?
         GROUP BY sku
     """,
-        (today,),
+        (stock_date,),
     ):
         stock_by_sku[row["sku"]] = {
             "fact": row["fact"] or 0,
@@ -210,12 +228,24 @@ def compute_all(
         FROM fbo_stock_cluster
         WHERE snapshot_date = ?
     """,
-        (today,),
+        (stock_date,),
     ):
         cluster_stock[(row["sku"], row["cluster_name"])] = {
             "fact": row["fact_stock"] or 0,
             "transit": row["in_transit"] or 0,
         }
+
+    # Same fallback as stock: a failed sales step must not erase the per-cluster demand split.
+    sales_date = today
+    if not fbo.execute(
+        "SELECT 1 FROM fbo_sales_cluster WHERE snapshot_date = ? LIMIT 1", (today,)
+    ).fetchone():
+        row = fbo.execute("SELECT MAX(snapshot_date) FROM fbo_sales_cluster").fetchone()
+        if row and row[0]:
+            sales_date = row[0]
+            logger.warning(
+                "[fbo/analytics] no sales snapshot for %s — falling back to %s", today, sales_date
+            )
 
     cluster_sales: dict[tuple[str, str], dict[str, Any]] = {}
     for row in fbo.execute(
@@ -224,7 +254,7 @@ def compute_all(
         FROM fbo_sales_cluster
         WHERE snapshot_date = ?
     """,
-        (today,),
+        (sales_date,),
     ):
         cluster_sales[(row["sku"], row["cluster_name"])] = {
             "qty_10d": row["qty_10d"] or 0,
@@ -390,6 +420,11 @@ def compute_all(
         total_rec_by_sku[sku] = sku_total_rec
 
     with fbo:
+        # Rebuild today's recommendations rather than upserting over them: if a warehouse
+        # changed cluster, the stale row would keep recommending a shipment to the cluster
+        # the stock never actually sat in.
+        if cluster_rec_rows:
+            fbo.execute("DELETE FROM fbo_cluster_recommendations WHERE snapshot_date = ?", (today,))
         fbo.executemany(
             """
             INSERT INTO fbo_cluster_recommendations
@@ -492,6 +527,30 @@ def compute_all(
         """,
             summary_rows,
         )
+
+        # fbo_sku_summary is keyed by sku alone (no snapshot_date in the key), so a SKU that
+        # disappeared from the catalogue is never overwritten and lingers forever — in the table
+        # and in the header counters. Every row this run touched carries snapshot_date = today,
+        # so anything left on an older date is stale.
+        #
+        # But only prune when this run actually SAW the sales window. summary_rows covers
+        # sales ∪ stock, so with an empty sku_analytics_daily (a first run, or a user returning
+        # after more than 30 days — sales are synced AFTER this step) it shrinks to the few SKUs
+        # that still hold FBO stock. The list is non-empty, so a bare `if summary_rows` guard
+        # would happily delete everything else: measured at 6783 of 7197 products wiped from
+        # "Что грузить". No sales window → no pruning; the next full run cleans up instead.
+        # (Deleting by a NOT IN list of SKUs would also blow past SQLite's bound-parameter limit.)
+        if summary_rows and sales_by_sku:
+            removed = fbo.execute(
+                "DELETE FROM fbo_sku_summary WHERE snapshot_date <> ?", (today,)
+            ).rowcount
+            if removed:
+                logger.info("[fbo/analytics] Removed %d stale SKU summaries", removed)
+        elif summary_rows:
+            logger.warning(
+                "[fbo/analytics] sales window empty — keeping %d existing SKU rows untouched",
+                fbo.execute("SELECT COUNT(*) FROM fbo_sku_summary").fetchone()[0],
+            )
 
     logger.info("[fbo/analytics] Written %d SKU summaries", len(summary_rows))
 

@@ -31,6 +31,7 @@ from datetime import date, datetime, timedelta
 def run_pipeline(days: int = 35) -> None:
     from modules.analytics.catalog import sync_catalog
     from modules.analytics.sales import sync_sales
+    from modules.fbo.analytics import compute_all
     from modules.fbo.storage import get_fbo_connection, init_fbo_db, upsert_sync_status
     from modules.fbo.sync import run_full_sync
     from shared.api.seller import SellerClient
@@ -109,6 +110,23 @@ def run_pipeline(days: int = 35) -> None:
             st["rows"] = sync_sales(conn, seller, date_from, today, basic_only=True)
     finally:
         conn.close()
+        status_conn.close()
+
+    # [4/4] Пересчёт на свежих продажах. compute_all внутри run_full_sync отработал ДО шага
+    # [3/3], то есть на продажах прошлого запуска (а на самом первом — вообще без продаж:
+    # sku_analytics_daily тогда пуста, и «Что грузить» считалось по нулевому спросу).
+    # Это чистый SQL по локальным БД — секунды, без обращений к Ozon.
+    status_conn = get_fbo_connection()
+    analytics_conn = get_connection()
+    try:
+        with _step("recompute"):
+            logger.info("[4/4] Пересчёт рекомендаций на свежих продажах…")
+            # compute_all принимает дату СТРОКОЙ (внутри идёт date.fromisoformat) — ровно так её
+            # передаёт run_full_sync. Объект date здесь молча ронял шаг в TypeError, а _step гасил
+            # исключение, так что пересчёт «проходил», ничего не пересчитывая.
+            compute_all(status_conn, analytics_conn, today.isoformat())
+    finally:
+        analytics_conn.close()
         status_conn.close()
     logger.info("=== Готово ===")
 
