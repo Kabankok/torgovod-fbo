@@ -8,7 +8,7 @@
   <img src="https://img.shields.io/badge/%D1%86%D0%B5%D0%BD%D0%B0-%D0%91%D0%95%D0%A1%D0%9F%D0%9B%D0%90%D0%A2%D0%9D%D0%9E-2ea043">
   <img src="https://img.shields.io/badge/%D0%BC%D0%B0%D1%80%D0%BA%D0%B5%D1%82%D0%BF%D0%BB%D0%B5%D0%B9%D1%81-Ozon%20FBO-005bff">
   <img src="https://img.shields.io/badge/Python-3.11%2B-3776ab">
-  <a href="https://t.me/vibe_coding_ozon_wb"><img src="https://img.shields.io/badge/Telegram-%D0%BF%D0%BE%D0%B4%D0%BF%D0%B8%D1%81%D0%B0%D1%82%D1%8C%D1%81%D1%8F-26A5E4"></a>
+  <a href="https://telegram.me/vibe_coding_ozon_wb"><img src="https://img.shields.io/badge/Telegram-%D0%BF%D0%BE%D0%B4%D0%BF%D0%B8%D1%81%D0%B0%D1%82%D1%8C%D1%81%D1%8F-26A5E4"></a>
 </p>
 
 <p align="center">
@@ -142,7 +142,7 @@ python seed_demo.py
 
 **С чего начать:**
 
-- 📣 **Telegram-канал:** [@vibe_coding_ozon_wb](https://t.me/vibe_coding_ozon_wb) — разборы, бесплатные инструменты и фишки для селлеров.
+- 📣 **Telegram-канал:** [@vibe_coding_ozon_wb](https://telegram.me/vibe_coding_ozon_wb) — разборы, бесплатные инструменты и фишки для селлеров.
 - 🌐 **Сайт:** [vladimir-kabanov.ru](https://vladimir-kabanov.ru/)
 - 🚀 **Базовый курс** — научитесь собирать SaaS-инструменты под свой магазин с нуля. Попробовать можно за **3 900 ₽**.
 
