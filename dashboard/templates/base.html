@@ -49,6 +49,24 @@
         <div class="text-xs text-ink-muted mt-0.5 font-medium">Отгрузки FBO · Ozon</div>
       </div>
 
+      <!-- Telegram CTA — подписка на канал -->
+      <a href="https://vladimir-kabanov.ru/tg" target="_blank" rel="noopener"
+         class="group relative mx-3 mt-4 mb-1 flex items-center gap-3 rounded-xl px-3.5 py-3
+                bg-gradient-to-br from-[#2AABEE] to-[#229ED9]
+                shadow-lg shadow-[#229ED9]/25 ring-1 ring-white/10
+                hover:from-[#37b6f5] hover:to-[#2aa7e0] hover:shadow-[#229ED9]/40
+                transition-all">
+        <span class="flex-shrink-0 w-9 h-9 rounded-full bg-white/20 flex items-center justify-center">
+          <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M9.78 18.65l.28-4.23 7.68-6.92c.34-.31-.07-.46-.52-.19L7.74 13.3 3.64 12c-.88-.25-.89-.86.2-1.3l15.97-6.16c.73-.33 1.43.18 1.15 1.3l-2.72 12.81c-.19.9-.75 1.12-1.51.71L12.6 16.3l-1.99 1.93c-.23.23-.42.42-.83.42z"/>
+          </svg>
+        </span>
+        <span class="min-w-0">
+          <span class="block text-sm font-bold text-white leading-tight">Подписаться на Telegram</span>
+          <span class="block text-[11px] text-white/80 leading-tight mt-0.5">Разборы и бесплатные инструменты</span>
+        </span>
+      </a>
+
       <nav class="flex-1 px-3 py-4 flex flex-col gap-0.5 overflow-y-auto">
 
         {% macro navlink(href, label, is_active) %}
